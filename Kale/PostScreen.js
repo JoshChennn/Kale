@@ -8,6 +8,7 @@ import {
   ScrollView,
   Dimensions,
   StyleSheet,
+  Pressable,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 
@@ -20,18 +21,28 @@ export default function PostScreen({ route, navigation }) {
     <SafeAreaView style={styles.container}>
       {/* header: avatar / username / date */}
       <ScrollView contentContainerStyle={styles.commentsContainer}>
-      <View style={styles.header}>
-        <Image source={{ uri: post.user.avatar }} style={styles.avatar} />
-        <View style={styles.headerText}>
-          <Text style={styles.username}>{post.user.name}</Text>
-          <Text style={styles.date}>{post.date}</Text>
-        </View>
-      </View>
+        <Pressable
+          style={styles.header}
+          onPress={() => {
+            const currentUserId = 1; // Assuming Big Bird's ID is 1
+            if (post.user.id === currentUserId) {
+              navigation.navigate('MainTabs', { screen: 'Profile', params: { userId: currentUserId } }); // Navigate to the main Profile tab within MainTabs
+            } else {
+              navigation.navigate('ProfileModal', { userId: post.user.id }); // Open ProfileModal for other users
+            }
+          }}
+        >
+          <Image source={{ uri: post.user.avatar }} style={styles.avatar} />
+          <View style={styles.headerText}>
+            <Text style={styles.username}>{post.user.name}</Text>
+            <Text style={styles.date}>{post.date}</Text>
+          </View>
+        </Pressable>
 
-      {/* full-width post image */}
-      <Image source={{ uri: post.imageUri }} style={styles.postImage} />
+        {/* full-width post image */}
+        <Image source={{ uri: post.imageUri }} style={styles.postImage} />
 
-      {/* comments section */}
+        {/* comments section */}
         {/* example static comment */}
         <View style={styles.commentRow}>
           <MaterialIcons name="person-outline" size={24} color="#53544D" />

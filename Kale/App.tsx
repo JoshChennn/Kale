@@ -1,10 +1,13 @@
-// App.tsx
 import * as React from 'react';
 import { useFonts } from 'expo-font';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { createStackNavigator } from '@react-navigation/stack';
+import {
+  createStackNavigator,
+  CardStyleInterpolators,
+} from '@react-navigation/stack';
 import { MaterialIcons } from '@expo/vector-icons';
+
 import FeedScreen from './FeedScreen';
 import ProfileScreen from './ProfileScreen';
 import ProfileModal from './ProfileModal.js';
@@ -16,9 +19,17 @@ const RootStack = createStackNavigator();
 
 function FeedStackScreen() {
   return (
-    <FeedStack.Navigator>
-      <FeedStack.Screen name="Feed" component={FeedScreen} options={{ headerShown: false }} />
-      <FeedStack.Screen name="ProfileModal" component={ProfileModal} options={{ presentation: 'modal', headerShown: false }} />
+    <FeedStack.Navigator
+      screenOptions={{
+        headerShown: false,
+        gestureEnabled: true,
+        gestureResponseDistance: 500,
+        cardStyleInterpolator: CardStyleInterpolators.forHorizontalIOS,
+      }}
+    >
+      <FeedStack.Screen name="Feed" component={FeedScreen} />
+      <FeedStack.Screen name="ProfileModal" component={ProfileModal} />
+      <FeedStack.Screen name="PostDetail" component={PostScreen} />
     </FeedStack.Navigator>
   );
 }
@@ -51,8 +62,16 @@ function MainTabs() {
         },
       })}
     >
-      <Tab.Screen name="FeedStack" component={FeedStackScreen} options={{ title: 'Feed' }} />
-      <Tab.Screen name="Profile" component={ProfileScreen} initialParams={{ userId: 1 }} />
+      <Tab.Screen
+        name="FeedStack"
+        component={FeedStackScreen}
+        options={{ title: 'Feed' }}
+      />
+      <Tab.Screen
+        name="Profile"
+        component={ProfileScreen}
+        initialParams={{ userId: 1 }}
+      />
     </Tab.Navigator>
   );
 }
@@ -67,7 +86,6 @@ export default function App() {
     <NavigationContainer>
       <RootStack.Navigator screenOptions={{ headerShown: false }}>
         <RootStack.Screen name="MainTabs" component={MainTabs} />
-        <RootStack.Screen name="PostDetail" component={PostScreen} />
       </RootStack.Navigator>
     </NavigationContainer>
   );

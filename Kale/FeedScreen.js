@@ -27,68 +27,8 @@ const stories = [
   { id: 5, name: 'Some Dude', uri: 'https://randomuser.me/api/portraits/men/65.jpg' },
 ];
 
-// keep this modal component from before
-function FeedLockedModal({ onUnlock }) {
-  return (
-    <View style={modalStyles.bg}>
-      <Text style={modalStyles.headline}>Besties Only</Text>
-      <View style={modalStyles.card}>
-        <MaterialCommunityIcons
-          name="leaf"
-          size={103}
-          color={BG}
-          style={modalStyles.icon}
-        />
-        <Text style={modalStyles.bodyText}>
-          You can view this feed{"\n"}once every 24 hours.
-        </Text>
-        <Pressable style={modalStyles.button} onPress={onUnlock}>
-          <Text style={modalStyles.buttonText}>View now</Text>
-        </Pressable>
-      </View>
-    </View>
-  );
-}
-
 export default function FeedScreen({ navigation }) {
-  const [isUnlocked, setIsUnlocked] = useState(false);
-
-  // check last unlock time
-  useEffect(() => {
-    const checkUnlock = async () => {
-      try {
-        const last = await AsyncStorage.getItem('feed_unlock_time');
-        if (last) {
-          const lastTime = parseInt(last, 10);
-          const now = Date.now();
-          if (now - lastTime < 24 * 60 * 60 * 1000) {
-            // still locked until 24h passes
-            setIsUnlocked(false);
-            return;
-          }
-        }
-        // setIsUnlocked(false); // default locked for demo
-      } catch (e) {
-        setIsUnlocked(false);
-      }
-    };
-    checkUnlock();
-  }, []);
-
-  const unlockFeed = async () => {
-    await AsyncStorage.setItem('feed_unlock_time', Date.now().toString());
-    setIsUnlocked(true);
-  };
-
-  if (!isUnlocked) {
-    return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: BG }}>
-        <FeedLockedModal onUnlock={unlockFeed} />
-      </SafeAreaView>
-    );
-  }
-
-  // unlocked feed UI
+  // Always render the unlocked feed UI
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView
@@ -115,7 +55,14 @@ export default function FeedScreen({ navigation }) {
           <View key={post.id} style={styles.postCard}>
             <Pressable
               style={styles.postHeader}
-              onPress={() => navigation.navigate('ProfileModal', { userId: post.user.id })}
+              onPress={() => {
+                const currentUserId = 1; // Assuming Big Bird's ID is 1
+                if (post.user.id === currentUserId) {
+                  navigation.navigate('MainTabs', { screen: 'Profile', params: { userId: currentUserId } }); // Navigate to the main Profile tab within MainTabs
+                } else {
+                  navigation.navigate('ProfileModal', { userId: post.user.id }); // Open ProfileModal for other users
+                }
+              }}
             >
               <Image source={{ uri: post.user.avatar }} style={styles.avatar} />
               <View style={styles.postHeaderTextRow}>
