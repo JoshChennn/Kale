@@ -74,10 +74,11 @@ export default function ProfileModal({ navigation, route }) {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#F2F2F2' }}>
       <View style={{ flex: 1 }}>
-        <Pressable style={{ alignSelf: 'flex-end', padding: 20 }} onPress={() => navigation.goBack()}>
-          <MaterialIcons name="close" size={32} color="#8BA637" />
+        <Pressable style={styles.backButton} onPress={() => navigation.goBack()}>
+          <MaterialIcons name="arrow-back" size={24} color="#b9b9b9" />
+          <Text style={styles.backButtonText}>Back</Text>
         </Pressable>
-        <ScrollView contentContainerStyle={{ paddingBottom: 100 }} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={styles.scrollViewContent} showsVerticalScrollIndicator={false}>
           <View>
             <Image source={{ uri: user.avatar }} style={styles.profileImage} />
             <View style={styles.row}>
@@ -85,8 +86,8 @@ export default function ProfileModal({ navigation, route }) {
               <MaterialIcons name="verified" size={20} color="#8BA637" style={{ marginLeft: 4 }} />
             </View>
             <Text style={styles.handle}>@{user.name.toLowerCase().replace(/\s/g, '')}</Text>
+            <Text style={styles.bio}>{user.bio}</Text>
           </View>
-          <Text style={styles.bio}>This is {user.name}'s bio.</Text>
 
           <View style={styles.buttonWrapper}>
             {isCurrentUser ? (
@@ -124,7 +125,7 @@ export default function ProfileModal({ navigation, route }) {
                 <Pressable
                   key={item.id}
                   style={styles.postCard}
-                  onPress={() => navigation.navigate('PostDetail', { post: item })}
+                  onPress={() => navigation.navigate('FeedStack', { screen: 'PostDetail', params: { post: item } })}
                 >
                   <Image
                     source={{ uri: item.imageUri }}
@@ -159,7 +160,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F2F2F2',
     justifyContent: 'space-around',
     alignItems: 'center',
-    zIndex: 99, // ensure nav bar sits above everything
+    zIndex: 99,
   },
   profileImage: {
     width: 80,
@@ -167,7 +168,7 @@ const styles = StyleSheet.create({
     borderRadius: 40,
     borderWidth: 0.5,
     borderColor: '#b9b9b9',
-    marginTop: 69,
+    marginTop: 10,
     marginLeft: 35,
     marginBottom: 12,
   },
@@ -299,5 +300,21 @@ const styles = StyleSheet.create({
     marginLeft: 35,
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 20,
+    zIndex: 1,
+  },
+  backButtonText: {
+    marginLeft: 5,
+    fontSize: 18,
+    fontFamily: 'PatrickHand-Regular',
+    color: '#b9b9b9',
+  },
+  scrollViewContent: {
+    paddingTop: 80,
+    paddingBottom: 100,
   },
 }); 

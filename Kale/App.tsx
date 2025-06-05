@@ -12,6 +12,9 @@ import FeedScreen from './FeedScreen';
 import ProfileScreen from './ProfileScreen';
 import ProfileModal from './ProfileModal.js';
 import PostScreen from './PostScreen';
+import StoryViewer from './StoryViewer';
+import SearchScreen from './SearchScreen';
+import CreatePostScreen from './CreatePostScreen'; // new import
 
 const Tab = createBottomTabNavigator();
 const FeedStack = createStackNavigator();
@@ -48,14 +51,15 @@ function MainTabs() {
         tabBarShowLabel: false,
         tabBarIcon: ({ focused }) => {
           let iconName: keyof typeof MaterialIcons.glyphMap = 'home';
-          if (route.name === 'FeedStack')
-            iconName = focused ? 'favorite' : 'favorite-outline';
-          if (route.name === 'Profile')
-            iconName = focused ? 'person' : 'person-outline';
+          if (route.name === 'FeedStack') iconName = focused ? 'favorite' : 'favorite-outline';
+          if (route.name === 'Search') iconName = 'search';
+          if (route.name === 'CreatePost') iconName = focused ? 'add-circle' : 'add-circle-outline';
+          if (route.name === 'Profile') iconName = focused ? 'person' : 'person-outline';
+
           return (
             <MaterialIcons
               name={iconName}
-              size={32}
+              size={36}
               color={focused ? '#8BA637' : '#B9B9B9'}
             />
           );
@@ -66,6 +70,12 @@ function MainTabs() {
         name="FeedStack"
         component={FeedStackScreen}
         options={{ title: 'Feed' }}
+      />
+      <Tab.Screen name="Search" component={SearchScreen} options={{ title: 'Search' }} />
+      <Tab.Screen
+        name="CreatePost"
+        component={CreatePostScreen}
+        options={{ title: 'Add Post' }}
       />
       <Tab.Screen
         name="Profile"
@@ -86,6 +96,22 @@ export default function App() {
     <NavigationContainer>
       <RootStack.Navigator screenOptions={{ headerShown: false }}>
         <RootStack.Screen name="MainTabs" component={MainTabs} />
+        <RootStack.Screen
+          name="PostDetail"
+          component={PostScreen}
+          options={{ gestureEnabled: true, gestureResponseDistance: 500 }}
+        />
+        <RootStack.Screen
+          name="ProfileModal"
+          component={ProfileModal}
+          options={{ gestureEnabled: true, gestureResponseDistance: 500 }}
+        />
+        <RootStack.Screen
+          name="StoryViewer"
+          component={StoryViewer}
+          options={{ presentation: 'modal', headerShown: false }}
+        />
+        {/* CreatePostScreen is part of bottom tabs, so no need to include here */}
       </RootStack.Navigator>
     </NavigationContainer>
   );

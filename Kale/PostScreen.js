@@ -1,152 +1,202 @@
-// PostScreen.tsx
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
-  Image,
+  StyleSheet,
   SafeAreaView,
   ScrollView,
-  Dimensions,
-  StyleSheet,
+  Image,
+  TextInput,
   Pressable,
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-
-const { width: screenWidth } = Dimensions.get('window');
 
 export default function PostScreen({ route, navigation }) {
   const { post } = route.params;
 
+  // For demo, start with no comments; in a real app, fetch from your backend
+  const [comments, setComments] = useState([]);
+  const [newComment, setNewComment] = useState('');
+
+  const handleAddComment = () => {
+    if (newComment.trim().length === 0) return;
+    const commentObj = {
+      id: Date.now().toString(),
+      text: newComment.trim(),
+      author: 'You', // swap with actual username in a real app
+      date: new Date().toLocaleDateString(),
+    };
+    setComments(prev => [commentObj, ...prev]);
+    setNewComment('');
+  };
+
+  const renderComment = ({ item }) => (
+    <View style={styles.commentItem}>
+      <Text style={styles.commentAuthor}>{item.author}:</Text>
+      <Text style={styles.commentText}>{item.text}</Text>
+      <Text style={styles.commentDate}>{item.date}</Text>
+    </View>
+  );
+
   return (
-    <SafeAreaView style={styles.container}>
-      {/* header: avatar / username / date */}
-      <ScrollView contentContainerStyle={styles.commentsContainer}>
-        <Pressable
-          style={styles.header}
-          onPress={() => {
-            const currentUserId = 1; // Assuming Big Bird's ID is 1
-            if (post.user.id === currentUserId) {
-              navigation.navigate('MainTabs', { screen: 'Profile', params: { userId: currentUserId } }); // Navigate to the main Profile tab within MainTabs
-            } else {
-              navigation.navigate('ProfileModal', { userId: post.user.id }); // Open ProfileModal for other users
-            }
-          }}
-        >
-          <Image source={{ uri: post.user.avatar }} style={styles.avatar} />
-          <View style={styles.headerText}>
-            <Text style={styles.username}>{post.user.name}</Text>
-            <Text style={styles.date}>{post.date}</Text>
-          </View>
+    <SafeAreaView style={styles.safeArea}>
+      <View style={styles.header}>
+        <Pressable onPress={() => navigation.goBack()} style={styles.backButton}>
+          <MaterialIcons name="arrow-back" size={24} color="#53544D" />
         </Pressable>
+        <Text style={styles.headerTitle}>Comments</Text>
+      </View>
 
-        {/* full-width post image */}
+      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <Image source={{ uri: post.imageUri }} style={styles.postImage} />
+        <Text style={styles.postUsername}>{post.user.name}</Text>
+        <Text style={styles.postDate}>{post.date}</Text>
 
-        {/* comments section */}
-        {/* example static comment */}
-        <View style={styles.commentRow}>
-          <MaterialIcons name="person-outline" size={24} color="#53544D" />
-          <View style={styles.commentTextWrapper}>
-            <Text style={styles.commentUsername}>some_user</Text>
-            <Text style={styles.commentBody}>
-              this is a sample comment under the post.
-            </Text>
-          </View>
+        <View style={styles.commentsSection}>
+          {comments.length === 0 ? (
+            <Text style={styles.noCommentsText}>No comments yet. Be the first!</Text>
+          ) : (
+            <FlatList
+              data={comments}
+              keyExtractor={item => item.id}
+              renderItem={renderComment}
+              style={styles.commentsList}
+            />
+          )}
         </View>
-        {/* you can map over post.comments if you have them */}
       </ScrollView>
+
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={80}
+      >
+        <View style={styles.inputContainer}>
+          <TextInput
+            style={styles.input}
+            value={newComment}
+            onChangeText={setNewComment}
+            placeholder="add a comment..."
+            placeholderTextColor="#999"
+          />
+          <Pressable style={styles.sendButton} onPress={handleAddComment}>
+            <MaterialIcons name="send" size={24} color="#8BA637" />
+          </Pressable>
+        </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
-export function BottomNav({ navigation, current }) {
-  return (
-    <View style={styles.navBar}>
-      <Pressable onPress={() => navigation.navigate('Feed')}>
-        <MaterialIcons name="home" size={43} color={current === 'Feed' ? '#8BA637' : '#B9B9B9'} />
-      </Pressable>
-      <Pressable onPress={() => navigation.navigate('Profile')}>
-        <MaterialIcons name="person" size={43} color={current === 'Profile' ? '#8BA637' : '#B9B9B9'} />
-      </Pressable>
-      {/* add more icons/screens as you go */}
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
-  navBar: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: 83,
-    flexDirection: 'row',
-    backgroundColor: '#F2F2F2',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    zIndex: 99, // ensure nav bar sits above everything
-  },
-
-  container: {
+  /* Container Styles */
+  safeArea: {
     flex: 1,
     backgroundColor: '#F2F2F2',
   },
-  // header row styles
+  container: {
+    padding: 20,
+    paddingBottom: 80,
+  },
+
+  /* Header Styles */
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
+    padding: 10,
     borderBottomWidth: 1,
-    borderColor: '#eee',
+    borderBottomColor: '#e6e6e6',
   },
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  backButton: {
     marginRight: 10,
   },
-  headerText: {
-    flex: 1,
-    flexDirection: 'column',
+  headerTitle: {
+    fontSize: 20,
+    fontFamily: 'PatrickHand-Regular',
+    color: '#53544D',
   },
-  username: {
+
+  /* Post Styles */
+  postImage: {
+    width: '100%',
+    height: 300,
+    borderRadius: 10,
+    marginBottom: 10,
+    backgroundColor: '#ccc',
+  },
+  postUsername: {
     fontSize: 16,
     fontFamily: 'PatrickHand-Regular',
     color: '#53544D',
   },
-  date: {
+  postDate: {
     fontSize: 14,
     fontFamily: 'PatrickHand-Regular',
     color: '#b9b9b9',
+    marginBottom: 20,
   },
 
-  // full-width image
-  postImage: {
-    width: screenWidth,
-    height: screenWidth, // square aspect
-    resizeMode: 'cover',
-  },
-
-  // comments wrapper
-  commentRow: {
-    flexDirection: 'row',
-    marginBottom: 12,
-    alignItems: 'flex-start',
-    padding: 15,
-  },
-  commentTextWrapper: {
+  /* Comments Section */
+  commentsSection: {
     flex: 1,
-    marginLeft: 8,
   },
-  commentUsername: {
-    fontSize: 1,
+  noCommentsText: {
+    fontSize: 16,
     fontFamily: 'PatrickHand-Regular',
-    fontWeight: '600',
-    color: '#53544D',
+    color: '#999',
+    textAlign: 'center',
+    marginTop: 40,
   },
-  commentBody: {
+  commentsList: {
+    marginBottom: 10,
+  },
+  commentItem: {
+    backgroundColor: '#fff',
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 15,
+  },
+  commentAuthor: {
     fontSize: 14,
     fontFamily: 'PatrickHand-Regular',
     color: '#53544D',
+    marginBottom: 4,
+  },
+  commentText: {
+    fontSize: 16,
+    fontFamily: 'PatrickHand-Regular',
+    color: '#53544D',
+  },
+  commentDate: {
+    fontSize: 12,
+    fontFamily: 'PatrickHand-Regular',
+    color: '#b9b9b9',
+    textAlign: 'right',
+    marginTop: 4,
+  },
+
+  /* Input Section */
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#e6e6e6',
+    backgroundColor: '#F2F2F2',
+  },
+  input: {
+    flex: 1,
+    height: 40,
+    backgroundColor: '#e6e6e6',
+    borderRadius: 20,
+    paddingHorizontal: 15,
+    fontFamily: 'PatrickHand-Regular',
+    fontSize: 16,
+    color: '#53544D',
+  },
+  sendButton: {
+    marginLeft: 10,
   },
 });

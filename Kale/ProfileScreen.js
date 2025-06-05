@@ -118,8 +118,7 @@ export default function ProfileScreen({ navigation, route }) {
           </Pressable>
 
           <Text style={styles.bio}>
-            Born in 1969 / child labour advocate.{"\n"}
-            As my old friend Alexander Hamilton once said, "the children are fast."
+            {user.bio}
           </Text>
 
           {/* Buttons */}
@@ -164,7 +163,7 @@ export default function ProfileScreen({ navigation, route }) {
                 <Pressable
                   key={item.id}
                   style={styles.postCard}
-                  onPress={() => navigation.navigate('PostDetail', { post: item })}
+                  onPress={() => navigation.navigate('FeedStack', { screen: 'PostDetail', params: { post: item } })}
                 >
                   <Image
                     source={{ uri: item.imageUri }}

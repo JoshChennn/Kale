@@ -1,4 +1,3 @@
-// FeedScreen.tsx
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -12,23 +11,51 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { posts } from './data';
+import { posts as allPosts, users } from './data';
 
 const screenWidth = Dimensions.get('window').width;
 const storySize = 70;
 const CARD_RADIUS = 20;
-
-// dummy data for stories
-const stories = [
-  { id: 1, name: 'Unknown', uri: 'https://placekitten.com/100/100' },
-  { id: 2, name: 'Timothy', uri: 'https://randomuser.me/api/portraits/men/32.jpg' },
-  { id: 3, name: 'Kale', uri: 'https://images.unsplash.com/photo-1506744038136-46273834b3fb' },
-  { id: 4, name: 'Other Girl', uri: 'https://randomuser.me/api/portraits/women/44.jpg' },
-  { id: 5, name: 'Some Dude', uri: 'https://randomuser.me/api/portraits/men/65.jpg' },
-];
+const CURRENT_USER_ID = 1;
+const FOLLOWING_KEY = 'followingUsers';
 
 export default function FeedScreen({ navigation }) {
-  // Always render the unlocked feed UI
+  // removed <number[]> type annotation since this is a .js file
+  const [followingUsers, setFollowingUsers] = useState([]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const stored = await AsyncStorage.getItem(FOLLOWING_KEY);
+        const parsed = stored ? JSON.parse(stored) : [];
+        setFollowingUsers(parsed);
+      } catch (e) {
+        console.warn('failed to load following list', e);
+      }
+    })();
+  }, []);
+
+  // build stories: own user first, then followed users
+  const stories = React.useMemo(() => {
+    const currentUser = users.find(u => u.id === CURRENT_USER_ID);
+    const followed = users.filter(u => followingUsers.includes(u.id));
+    const storyEntries = [];
+    if (currentUser && currentUser.stories) {
+      storyEntries.push({ id: currentUser.id, name: currentUser.name, uriList: currentUser.stories });
+    }
+    followed.forEach(user => {
+      if (user.stories) {
+        storyEntries.push({ id: user.id, name: user.name, uriList: user.stories });
+      }
+    });
+    return storyEntries;
+  }, [followingUsers]);
+
+  // build posts: only posts by followed users
+  const posts = React.useMemo(() => {
+    return allPosts.filter(p => followingUsers.includes(p.user.id));
+  }, [followingUsers]);
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView
@@ -41,26 +68,35 @@ export default function FeedScreen({ navigation }) {
         {/* stories bar */}
         <View style={styles.storiesContainer}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {stories.map((story) => (
-              <View key={story.id} style={styles.storyItem}>
-                <Image source={{ uri: story.uri }} style={styles.storyImage} />
-                <Text style={styles.storyName}>{story.name}</Text>
-              </View>
+            {stories.map(storyBlock => (
+              <Pressable
+                key={storyBlock.id}
+                style={styles.storyItem}
+                onPress={() => {
+                  // open StoryViewer with all URIs for that user
+                  navigation.navigate('StoryViewer', {
+                    stories: storyBlock.uriList,
+                    initialIndex: 0,
+                  });
+                }}
+              >
+                <Image source={{ uri: users.find(u => u.id === storyBlock.id)?.avatar }} style={styles.storyImage} />
+                <Text style={styles.storyName}>{storyBlock.name}</Text>
+              </Pressable>
             ))}
           </ScrollView>
         </View>
 
         {/* posts list */}
-        {posts.map((post) => (
+        {posts.map(post => (
           <View key={post.id} style={styles.postCard}>
             <Pressable
               style={styles.postHeader}
               onPress={() => {
-                const currentUserId = 1; // Assuming Big Bird's ID is 1
-                if (post.user.id === currentUserId) {
-                  navigation.navigate('MainTabs', { screen: 'Profile', params: { userId: currentUserId } }); // Navigate to the main Profile tab within MainTabs
+                if (post.user.id === CURRENT_USER_ID) {
+                  navigation.navigate('MainTabs', { screen: 'Profile', params: { userId: CURRENT_USER_ID } });
                 } else {
-                  navigation.navigate('ProfileModal', { userId: post.user.id }); // Open ProfileModal for other users
+                  navigation.navigate('ProfileModal', { userId: post.user.id });
                 }
               }}
             >
@@ -75,12 +111,11 @@ export default function FeedScreen({ navigation }) {
               style={styles.commentsBtn}
               onPress={() => navigation.navigate('PostDetail', { post })}
             >
-              <Text style={styles.commentsText}>
-                View comments ({post.commentsCount})
-              </Text>
+              <Text style={styles.commentsText}>View comments ({post.commentsCount})</Text>
             </Pressable>
           </View>
         ))}
+
       </ScrollView>
     </SafeAreaView>
   );
@@ -90,73 +125,17 @@ const CARD_BG = '#8BA637';
 const BG = '#F2F2F2';
 const { width: width } = Dimensions.get('window');
 
-const modalStyles = StyleSheet.create({
-  bg: {
-    flex: 1,
-    backgroundColor: BG,
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-  },
-  headline: {
-    fontFamily: 'PatrickHand-Regular',
-    fontSize: 32,
-    color: CARD_BG,
-    marginTop: 57,
-    marginBottom: 60,
-    textAlign: 'center',
-  },
-  card: {
-    width: width - 80,
-    borderRadius: 35,
-    backgroundColor: CARD_BG,
-    alignItems: 'center',
-    minHeight: 500,
-    marginHorizontal: 40,
-    position: 'relative',
-  },
-  icon: {
-    marginTop: 80,
-    marginBottom: 30,
-  },
-  bodyText: {
-    fontFamily: 'PatrickHand-Regular',
-    fontSize: 24,
-    color: BG,
-    textAlign: 'center',
-    lineHeight: 28,
-  },
-  button: {
-    backgroundColor: BG,
-    borderRadius: 10,
-    width: 135,
-    height: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'absolute',
-    bottom: 80,
-  },
-  buttonText: {
-    fontFamily: 'PatrickHand-Regular',
-    fontSize: 24,
-    color: CARD_BG,
-    textAlign: 'center',
-  },
-});
-
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: BG,
-  },
+  container: { flex: 1, backgroundColor: BG },
 
   // HEADER
-    header: {
-        fontSize: 40,
-        textAlign: 'center',
-        marginVertical: 30,
-        fontFamily: 'PatrickHand-Regular',
-        color: '#8BA637',
-    },
+  header: {
+    fontSize: 40,
+    textAlign: 'center',
+    marginVertical: 30,
+    fontFamily: 'PatrickHand-Regular',
+    color: '#8BA637',
+  },
 
   // STORY BAR
   storiesContainer: {
