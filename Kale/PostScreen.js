@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,24 +12,54 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { db, auth } from './firebaseConfig';
+import { collection, addDoc, serverTimestamp, query, orderBy, onSnapshot, doc, updateDoc, increment } from 'firebase/firestore';
 import { MaterialIcons } from '@expo/vector-icons';
 
 export default function PostScreen({ route, navigation }) {
   const { post } = route.params;
+  const currentUser = auth.currentUser;
 
-  // For demo, start with no comments; in a real app, fetch from your backend
   const [comments, setComments] = useState([]);
   const [newComment, setNewComment] = useState('');
 
-  const handleAddComment = () => {
-    if (newComment.trim().length === 0) return;
-    const commentObj = {
-      id: Date.now().toString(),
+  useEffect(() => {
+    const commentsRef = collection(db, 'posts', post.id, 'comments');
+    const q = query(commentsRef, orderBy('createdAt', 'desc'));
+
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const fetchedComments = querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          text: data.text,
+          author: data.authorName,
+          date: data.createdAt?.toDate().toLocaleDateString() || 'someday',
+        };
+      });
+      setComments(fetchedComments);
+    });
+
+    return () => unsubscribe();
+  }, [post.id]);
+
+  const handleAddComment = async () => {
+    if (newComment.trim().length === 0 || !currentUser) return;
+
+    const commentsRef = collection(db, 'posts', post.id, 'comments');
+    await addDoc(commentsRef, {
       text: newComment.trim(),
-      author: 'You', // swap with actual username in a real app
-      date: new Date().toLocaleDateString(),
-    };
-    setComments(prev => [commentObj, ...prev]);
+      authorId: currentUser.uid,
+      authorName: currentUser.displayName || 'Anonymous',
+      createdAt: serverTimestamp(),
+    });
+
+    // Increment commentsCount on the post document
+    const postRef = doc(db, 'posts', post.id);
+    await updateDoc(postRef, {
+      commentsCount: increment(1)
+    });
+
     setNewComment('');
   };
 

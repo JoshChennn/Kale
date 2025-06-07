@@ -1,4 +1,5 @@
-// SearchScreen.js – recents padding aligned, title capitalized, clear‑query "X" in search bar
+// SearchScreen.js
+
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -8,22 +9,22 @@ import {
   Image,
   Pressable,
   StyleSheet,
+  ActivityIndicator,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialIcons } from '@expo/vector-icons';
-import { users as rawUsers } from './data';
+// Import the v8 compat instances, including the 'firebase' object for FieldPath
+import { db, auth, firebase } from './firebaseConfig';
 
 const RECENTS_KEY = 'searchRecents_v1';
 const MAX_RECENTS = 15;
 
-// helpers
-const getHandle = (name) => `@${name.toLowerCase().replace(/\s+/g, '')}`;
-const enrichUser = (u) => ({ ...u, handle: getHandle(u.name) });
-const users = rawUsers.map(enrichUser);
-
 export default function SearchScreen({ navigation }) {
   const [query, setQuery] = useState('');
   const [recents, setRecents] = useState([]); // userIds
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const currentUserId = auth.currentUser?.uid;
 
   // load cached recents
   useEffect(() => {
@@ -36,6 +37,38 @@ export default function SearchScreen({ navigation }) {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    const performSearch = async () => {
+      if (query.trim().length === 0) {
+        setResults([]);
+        return;
+      }
+
+      setLoading(true);
+      const lower = query.toLowerCase();
+      // Use v8 compat syntax for queries (chaining methods)
+      const usersRef = db.collection('users');
+      const q = usersRef
+        .where('handle', '>=', lower)
+        .where('handle', '<=', `${lower}\uf8ff`)
+        .limit(15);
+
+      try {
+        // Use .get() instead of getDocs(q)
+        const querySnapshot = await q.get();
+        const users = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setResults(users.filter(u => u.id !== currentUserId));
+      } catch (e) {
+        console.error("Search failed:", e);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const debounceTimeout = setTimeout(() => performSearch(), 300);
+    return () => clearTimeout(debounceTimeout);
+  }, [query, currentUserId]);
 
   const persist = async (list) => {
     setRecents(list);
@@ -55,30 +88,32 @@ export default function SearchScreen({ navigation }) {
     await persist(recents.filter((x) => x !== id));
   };
 
-  // data
-  const lower = query.toLowerCase();
-  const results = users.filter(
-    (u) =>
-      u.handle.includes(lower) ||
-      u.name.toLowerCase().includes(lower) ||
-      u.bio?.toLowerCase().includes(lower)
-  );
-
-  const recentsUsers = recents
-    .map((id) => users.find((u) => u.id === id))
-    .filter(Boolean);
+  const [recentsUsers, setRecentsUsers] = useState([]);
+  useEffect(() => {
+    const loadRecentsData = async () => {
+      if (recents.length > 0) {
+        const usersRef = db.collection('users');
+        // Use v8 compat syntax for 'in' queries on document IDs
+        const q = usersRef.where(firebase.firestore.FieldPath.documentId(), 'in', recents.slice(0, 10));
+        // Use .get()
+        const snapshot = await q.get();
+        const userMap = new Map(snapshot.docs.map(doc => [doc.id, { id: doc.id, ...doc.data() }]));
+        setRecentsUsers(recents.map(id => userMap.get(id)).filter(Boolean));
+      }
+    }
+    loadRecentsData();
+  }, [recents]);
 
   const navigateToProfile = async (user) => {
     await addRecent(user.id);
-    if (user.id === 1) {
-      navigation.navigate('MainTabs', {
-        screen: 'Profile',
-        params: { userId: 1 },
-      });
+    if (user.id === currentUserId) {
+      navigation.navigate('Profile', { userId: currentUserId });
     } else {
       navigation.navigate('ProfileModal', { userId: user.id });
     }
   };
+
+  // ... (rest of the component is unchanged)
 
   // shared row renderer
   const UserRow = ({ user, showDelete }) => (
@@ -140,14 +175,18 @@ export default function SearchScreen({ navigation }) {
 
       {/* results vs recents */}
       {showResults ? (
-        <FlatList
+        loading ? ( 
+          <ActivityIndicator size="large" color="#8BA637" style={{ marginTop: 60 }} />
+        ) : (
+          <FlatList
             data={results}
             keyExtractor={(u) => u.id.toString()}
             renderItem={({ item }) => <UserRow user={item} showDelete={false} />}
             ListEmptyComponent={<Empty text="No results found." />}
             keyboardDismissMode="on-drag"
             keyboardShouldPersistTaps="handled"
-        />
+          />
+        )
       ) : (
         <FlatList
             data={recentsUsers}

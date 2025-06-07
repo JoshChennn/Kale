@@ -1,85 +1,105 @@
-import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, Image, SafeAreaView, Text, ScrollView, Dimensions, Pressable } from 'react-native';
+import React, { useEffect, useState, useCallback } from 'react';
+import { View, StyleSheet, Image, SafeAreaView, Text, ScrollView, Dimensions, Pressable, Alert, ActivityIndicator } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { users, posts } from './data';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { db, auth } from './firebaseConfig';
+import { doc, onSnapshot, collection, query, where, orderBy } from 'firebase/firestore';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { functions } from './firebaseConfig';
 
 const screenWidth = Dimensions.get('window').width;
 const gridMargin = 6;
 const imgSize = (screenWidth - gridMargin * 4) / 3;
 
+// REMOVED module-scope declarations that depend on component props
+// const currentUserId = auth.currentUser?.uid;
+// const isCurrentUser = userId === currentUserId;
+
 export default function ProfileScreen({ navigation, route }) {
-  const defaultUserId = 1; // Assuming Big Bird's ID is 1
-  const { userId } = route.params || { userId: defaultUserId };
+  const { userId } = route.params;
 
-  const isCurrentUser = userId === defaultUserId;
+  // MOVED declarations inside the component
+  const currentUserId = auth.currentUser?.uid;
+  const isCurrentUser = userId === currentUserId;
 
-  // Find the user by id
-  const user = users.find(u => u.id === userId);
-
-  // Find posts for this user
-  const userPosts = posts.filter(p => p.user.id === userId);
-
+  const [user, setUser] = useState(null);
+  const [userPosts, setUserPosts] = useState([]);
   const [isFollowing, setIsFollowing] = useState(false);
-  const [isBestie, setIsBestie] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  // Load following status from AsyncStorage when userId changes
+  // Note: 'functions' from firebaseConfig is already initialized, but getFunctions() is the modular way.
+  // We'll stick with the imported 'functions' for consistency with your code.
+  const toggleFollowUser = httpsCallable(functions, 'toggleFollowUser');
+
   useEffect(() => {
-    const loadFollowingStatus = async () => {
-      if (!isCurrentUser) { // Only load for other users
-        try {
-          const followingUsers = JSON.parse(await AsyncStorage.getItem('followingUsers')) || [];
-          const isCurrentlyFollowing = followingUsers.includes(userId);
-          setIsFollowing(isCurrentlyFollowing);
-
-          // In a real app, you'd also load bestie status here
-          setIsBestie(false); // Reset bestie state for new user
-
-        } catch (e) {
-          console.error('Failed to load following status', e);
-          setIsFollowing(false);
-          setIsBestie(false);
-        }
+    if (!userId) return;
+    const userRef = doc(db, 'users', userId);
+    const unsubscribeUser = onSnapshot(userRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setUser({ id: docSnap.id, ...docSnap.data() });
       } else {
-        // Current user's profile - always show following true for demo purposes
-        setIsFollowing(true);
-        setIsBestie(false); // Assuming current user is not their own bestie
+        setUser(null);
       }
+      setLoading(false);
+    });
+
+    // Check if the current user is following this profile
+    let unsubscribeFollowing = () => {};
+    if (!isCurrentUser && currentUserId) {
+      const currentUserRef = doc(db, 'users', currentUserId);
+      unsubscribeFollowing = onSnapshot(currentUserRef, (snap) => {
+        const followingList = snap.data()?.following || [];
+        setIsFollowing(followingList.includes(userId));
+      });
+    }
+    
+    return () => {
+      unsubscribeUser();
+      unsubscribeFollowing();
     };
+  }, [userId, currentUserId, isCurrentUser]);
 
-    loadFollowingStatus();
-  }, [userId, isCurrentUser]); // Rerun when userId or isCurrentUser changes
+  useEffect(() => {
+    if (!userId) return;
+    const postsRef = collection(db, 'posts');
+    const q = query(postsRef, where("userId", "==", userId), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      setUserPosts(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => unsubscribe();
+  }, [userId]);
 
-  // Save following status to AsyncStorage
-  const toggleFollowing = async () => {
-    if (!isCurrentUser) { // Only toggle for other users
-      try {
-        const followingUsers = JSON.parse(await AsyncStorage.getItem('followingUsers')) || [];
-        const newFollowingUsers = isFollowing
-          ? followingUsers.filter(id => id !== userId) // Unfollow
-          : [...followingUsers, userId]; // Follow
-
-        await AsyncStorage.setItem('followingUsers', JSON.stringify(newFollowingUsers));
-        setIsFollowing(!isFollowing);
-        if (isFollowing) setIsBestie(false); // Unbestie if unfollowing
-      } catch (e) {
-        console.error('Failed to save following status', e);
-      }
+  const handleToggleFollowing = useCallback(async () => {
+    if (isCurrentUser) return;
+  
+    const wasFollowing = isFollowing;
+    setIsFollowing(!wasFollowing);
+  
+    try {
+      await toggleFollowUser({ userIdToFollow: userId });
+    } catch (e) {
+      console.error('Failed to follow/unfollow user:', e);
+      setIsFollowing(wasFollowing);
+      Alert.alert("Error", "Could not perform action. Please try again.");
     }
-  };
+  }, [isCurrentUser, userId, isFollowing, toggleFollowUser]);
 
-  // For demo purposes, toggle bestie status locally
-  const toggleBestie = () => {
-    if (isFollowing && !isCurrentUser) { // Only for other users and if following
-      setIsBestie(!isBestie);
-      // In a real app, save bestie status to backend/AsyncStorage
-    }
-  };
+  if (loading) {
+    return (
+      <SafeAreaView style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F2F2F2' }}>
+        <ActivityIndicator size="large" color="#8BA637" />
+      </SafeAreaView>
+    );
+  }
 
-  // Handle case where user might be null (e.g., invalid userId)
   if (!user) {
     return <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><Text>User not found</Text></View>;
   }
+
+  const mappedPosts = userPosts.map(p => ({
+    ...p,
+    user: { id: p.userId, name: p.userName, avatar: p.userAvatar },
+    date: p.createdAt ? p.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'someday'
+  }));
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#F2F2F2' }}>
@@ -88,24 +108,7 @@ export default function ProfileScreen({ navigation, route }) {
           contentContainerStyle={{ paddingBottom: 100 }}
           showsVerticalScrollIndicator={false}
         >
-          {/* profile header: image, name, handle, badge */}
-          <Pressable
-            onPress={() => {
-              const currentUserId = 1; // Assuming Big Bird's ID is 1
-              // In ProfileScreen (the tab), this should always be the current user
-              // Clicking the header should probably just stay on this page or scroll to top
-              // If this screen could show other users, the logic would be different.
-              // For now, let's just keep it as a no-op for the current user.
-              if (isCurrentUser) {
-                // Optional: scroll to top of the ScrollView
-                // scrollViewRef.current?.scrollTo({ y: 0, animated: true });
-              } else {
-                // This case should not be reached if ProfileScreen is only for the current user
-                // But if it were possible, you'd navigate to the modal:
-                // navigation.navigate('ProfileModal', { userId: user.id });
-              }
-            }}
-          >
+          <Pressable>
             <Image
               source={{ uri: user.avatar }}
               style={styles.profileImage}
@@ -114,7 +117,7 @@ export default function ProfileScreen({ navigation, route }) {
               <Text style={styles.name}>{user.name}</Text>
               <MaterialIcons name="verified" size={20} color="#8BA637" style={{ marginLeft: 4 }} />
             </View>
-            <Text style={styles.handle}>@{user.name.toLowerCase().replace(/\s/g, '')}</Text>
+            <Text style={styles.handle}>{user.handle || `@${user.name.toLowerCase().replace(/\s/g, '')}`}</Text>
           </Pressable>
 
           <Text style={styles.bio}>
@@ -124,46 +127,29 @@ export default function ProfileScreen({ navigation, route }) {
           {/* Buttons */}
           <View style={styles.buttonWrapper}>
             {isCurrentUser ? (
-              // Edit Profile Button for current user
               <Pressable style={styles.editProfileButton} onPress={() => { /* Handle Edit Profile */ }}>
                 <Text style={styles.editProfileText}>Edit profile</Text>
               </Pressable>
             ) : (
-              // Follow / Bestie Buttons for other users
-              <>
-                <Pressable
+              <Pressable
                   style={isFollowing ? styles.removeFriendButton : styles.addFriendButton}
-                  onPress={toggleFollowing}
+                  onPress={handleToggleFollowing}
                 >
                   <Text style={isFollowing ? styles.removeFriendText : styles.addFriendText}>
                     {isFollowing ? "Unfollow" : "Follow"}
                   </Text>
                 </Pressable>
-
-                {/* Bestie Button (only show if following) */}
-                {isFollowing && (
-                  <Pressable
-                    style={isBestie ? styles.removeBestieButton : styles.addBestieButton}
-                    onPress={toggleBestie}
-                  >
-                    <Text style={isBestie ? styles.removeBestieText : styles.addBestieText}>
-                      {isBestie ? "Remove from besties" : "Add to besties"}
-                    </Text>
-                  </Pressable>
-                )}
-              </>
             )}
           </View>
 
           {/* posts grid or lock */}
           {isCurrentUser || isFollowing ? (
-            // Show grid if current user or following
             <View style={styles.gridList}>
-              {userPosts.map((item, index) => (
+              {mappedPosts.map((item, index) => (
                 <Pressable
                   key={item.id}
                   style={styles.postCard}
-                  onPress={() => navigation.navigate('FeedStack', { screen: 'PostDetail', params: { post: item } })}
+                  onPress={() => navigation.navigate('PostDetail', { post: item })}
                 >
                   <Image
                     source={{ uri: item.imageUri }}
@@ -188,6 +174,7 @@ export default function ProfileScreen({ navigation, route }) {
   );
 }
 
+// Styles remain the same...
 const styles = StyleSheet.create({
   safe: {
     flex: 1,

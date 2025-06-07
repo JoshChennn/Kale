@@ -1,75 +1,109 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet, Image, SafeAreaView, Text, ScrollView, Dimensions, Pressable } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { users, posts } from './data';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { db, auth } from './firebaseConfig';
+import { doc, onSnapshot, collection, query, where, orderBy } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
+import { Alert, ActivityIndicator } from 'react-native';
+import { functions } from './firebaseConfig';
 
 const screenWidth = Dimensions.get('window').width;
 const gridMargin = 6;
 const imgSize = (screenWidth - gridMargin * 4) / 3;
 
+// REMOVED module-scope declarations that depend on component props
+// const currentUserId = auth.currentUser?.uid;
+// const isCurrentUser = userId === currentUserId;
+
 export default function ProfileModal({ navigation, route }) {
-  const defaultUserId = 1;
-  const { userId } = route.params || { userId: defaultUserId };
+  const { userId } = route.params;
 
-  const isCurrentUser = userId === defaultUserId;
+  // MOVED declarations inside the component
+  const currentUserId = auth.currentUser?.uid;
+  const isCurrentUser = userId === currentUserId;
 
-  const user = users.find(u => u.id === userId);
-  const userPosts = posts.filter(p => p.user.id === userId);
-
+  const [user, setUser] = useState(null);
+  const [userPosts, setUserPosts] = useState([]);
   const [isFollowing, setIsFollowing] = useState(false);
-  const [isBestie, setIsBestie] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const toggleFollowUser = httpsCallable(functions, 'toggleFollowUser');
 
   useEffect(() => {
-    const loadFollowingStatus = async () => {
-      if (!isCurrentUser) {
-        try {
-          const followingUsers = JSON.parse(await AsyncStorage.getItem('followingUsers')) || [];
-          const isCurrentlyFollowing = followingUsers.includes(userId);
-          setIsFollowing(isCurrentlyFollowing);
-
-          setIsBestie(false);
-
-        } catch (e) {
-          console.error('Failed to load following status', e);
-          setIsFollowing(false);
-          setIsBestie(false);
-        }
+    if (!userId) return;
+    const userRef = doc(db, 'users', userId);
+    const unsubscribeUser = onSnapshot(userRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setUser({ id: docSnap.id, ...docSnap.data() });
       } else {
-        setIsFollowing(true);
-        setIsBestie(false);
+        setUser(null);
       }
+      setLoading(false);
+    });
+
+    // Check if the current user is following this profile
+    let unsubscribeFollowing = () => {};
+    if (!isCurrentUser && currentUserId) {
+      const currentUserRef = doc(db, 'users', currentUserId);
+      unsubscribeFollowing = onSnapshot(currentUserRef, (snap) => {
+        const followingList = snap.data()?.following || [];
+        setIsFollowing(followingList.includes(userId));
+      });
+    }
+
+    return () => {
+      unsubscribeUser();
+      unsubscribeFollowing();
     };
+  }, [userId, currentUserId, isCurrentUser]);
 
-    loadFollowingStatus();
-  }, [userId, isCurrentUser]);
+  useEffect(() => {
+    if (!userId) return;
+    const postsRef = collection(db, 'posts');
+    const q = query(postsRef, where("userId", "==", userId), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      setUserPosts(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => unsubscribe();
+  }, [userId]);
 
-  const toggleFollowing = async () => {
-    if (!isCurrentUser) {
-      try {
-        const followingUsers = JSON.parse(await AsyncStorage.getItem('followingUsers')) || [];
-        const newFollowingUsers = isFollowing
-          ? followingUsers.filter(id => id !== userId)
-          : [...followingUsers, userId];
 
-        await AsyncStorage.setItem('followingUsers', JSON.stringify(newFollowingUsers));
-        setIsFollowing(!isFollowing);
-        if (isFollowing) setIsBestie(false);
-      } catch (e) {
-        console.error('Failed to save following status', e);
-      }
+  const handleToggleFollowing = useCallback(async () => {
+    if (isCurrentUser) return;
+  
+    const wasFollowing = isFollowing;
+    setIsFollowing(!wasFollowing);
+  
+    try {
+      await toggleFollowUser({ userIdToFollow: userId });
+    } catch (e) {
+      console.error('Failed to follow/unfollow user:', e);
+      setIsFollowing(wasFollowing);
+      Alert.alert("Error", e.message || "Could not perform action. Please try again.");
     }
-  };
+  }, [isCurrentUser, userId, isFollowing, toggleFollowUser]);
 
-  const toggleBestie = () => {
-    if (isFollowing && !isCurrentUser) {
-      setIsBestie(!isBestie);
-    }
-  };
+  if (loading) {
+    return (
+      <SafeAreaView style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F2F2F2' }}>
+        <ActivityIndicator size="large" color="#8BA637" />
+      </SafeAreaView>
+    );
+  }
 
   if (!user) {
-    return <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><Text>User not found</Text></View>;
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: '#F2F2F2' }}>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><Text>User not found</Text></View>
+      </SafeAreaView>
+    );
   }
+
+  const mappedPosts = userPosts.map(p => ({
+    ...p,
+    user: { id: p.userId, name: p.userName, avatar: p.userAvatar },
+    date: p.createdAt ? p.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'someday'
+  }));
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#F2F2F2' }}>
@@ -78,14 +112,17 @@ export default function ProfileModal({ navigation, route }) {
           <MaterialIcons name="arrow-back" size={24} color="#b9b9b9" />
           <Text style={styles.backButtonText}>Back</Text>
         </Pressable>
-        <ScrollView contentContainerStyle={styles.scrollViewContent} showsVerticalScrollIndicator={false}>
-          <View>
+        <ScrollView
+          contentContainerStyle={{ paddingBottom: 100 }}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.profileHeader}>
             <Image source={{ uri: user.avatar }} style={styles.profileImage} />
             <View style={styles.row}>
               <Text style={styles.name}>{user.name}</Text>
               <MaterialIcons name="verified" size={20} color="#8BA637" style={{ marginLeft: 4 }} />
             </View>
-            <Text style={styles.handle}>@{user.name.toLowerCase().replace(/\s/g, '')}</Text>
+            <Text style={styles.handle}>{user.handle || `@${user.name.toLowerCase().replace(/\s/g, '')}`}</Text>
             <Text style={styles.bio}>{user.bio}</Text>
           </View>
 
@@ -95,37 +132,24 @@ export default function ProfileModal({ navigation, route }) {
                 <Text style={styles.editProfileText}>Edit profile</Text>
               </Pressable>
             ) : (
-              <>
                 <Pressable
                   style={isFollowing ? styles.removeFriendButton : styles.addFriendButton}
-                  onPress={toggleFollowing}
+                  onPress={handleToggleFollowing}
                 >
                   <Text style={isFollowing ? styles.removeFriendText : styles.addFriendText}>
                     {isFollowing ? "Unfollow" : "Follow"}
                   </Text>
                 </Pressable>
-
-                {isFollowing && (
-                  <Pressable
-                    style={isBestie ? styles.removeBestieButton : styles.addBestieButton}
-                    onPress={toggleBestie}
-                  >
-                    <Text style={isBestie ? styles.removeBestieText : styles.addBestieText}>
-                      {isBestie ? "Remove from besties" : "Add to besties"}
-                    </Text>
-                  </Pressable>
-                )}
-              </>
             )}
           </View>
 
           {isCurrentUser || isFollowing ? (
             <View style={styles.gridList}>
-              {userPosts.map((item, index) => (
+              {mappedPosts.map((item, index) => (
                 <Pressable
                   key={item.id}
                   style={styles.postCard}
-                  onPress={() => navigation.navigate('FeedStack', { screen: 'PostDetail', params: { post: item } })}
+                  onPress={() => navigation.navigate('PostDetail', { post: item })}
                 >
                   <Image
                     source={{ uri: item.imageUri }}
@@ -149,6 +173,7 @@ export default function ProfileModal({ navigation, route }) {
   );
 }
 
+// Styles remain the same...
 const styles = StyleSheet.create({
   navBar: {
     position: 'absolute',
@@ -162,13 +187,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     zIndex: 99,
   },
+  profileHeader: {
+    paddingTop: 40,
+  },
   profileImage: {
     width: 80,
     height: 80,
     borderRadius: 40,
     borderWidth: 0.5,
-    borderColor: '#b9b9b9',
-    marginTop: 10,
+    borderColor: '#b9b9b9',  
     marginLeft: 35,
     marginBottom: 12,
   },
@@ -308,13 +335,9 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   backButtonText: {
-    marginLeft: 5,
+    marginLeft: 8,
     fontSize: 18,
     fontFamily: 'PatrickHand-Regular',
     color: '#b9b9b9',
   },
-  scrollViewContent: {
-    paddingTop: 80,
-    paddingBottom: 100,
-  },
-}); 
+});
