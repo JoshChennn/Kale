@@ -24,7 +24,23 @@ export default function SearchScreen({ navigation }) {
   const [recents, setRecents] = useState([]); // userIds
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [currentUserFollowing, setCurrentUserFollowing] = useState([]); // <-- New state for social ranking
   const currentUserId = auth.currentUser?.uid;
+
+  // Step 1: Fetch the current user's 'following' list once when the screen loads.
+  // This is essential for ranking results by social connection.
+  useEffect(() => {
+    if (!currentUserId) return;
+
+    const userRef = db.collection('users').doc(currentUserId);
+    const unsubscribe = userRef.onSnapshot(doc => {
+      if (doc.exists) {
+        setCurrentUserFollowing(doc.data().following || []);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [currentUserId]);
 
   // load cached recents
   useEffect(() => {
@@ -46,19 +62,42 @@ export default function SearchScreen({ navigation }) {
       }
 
       setLoading(true);
-      const lower = query.toLowerCase();
-      // Use v8 compat syntax for queries (chaining methods)
+      const searchTerm = query.toLowerCase().trim();
+
+      // Because Firestore doesn't support substring searches, we fetch a broader
+      // set of users (e.g., all users whose handle starts with the first letter
+      // of the search term) and then filter them on the client.
+      const firstLetter = searchTerm.charAt(0);
       const usersRef = db.collection('users');
       const q = usersRef
-        .where('handle', '>=', lower)
-        .where('handle', '<=', `${lower}\uf8ff`)
-        .limit(15);
+        .where('handle', '>=', `@${firstLetter}`)
+        .where('handle', '<=', `@${firstLetter}\uf8ff`)
+        .limit(40); // Fetch a slightly larger batch for client-side filtering
 
       try {
-        // Use .get() instead of getDocs(q)
         const querySnapshot = await q.get();
-        const users = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setResults(users.filter(u => u.id !== currentUserId));
+        const initialResults = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        // Step 2: Client-side filtering for a true "contains" search.
+        // This checks if the search term is in the user's name or handle.
+        const filteredResults = initialResults.filter(user => {
+            const name = user.name ? user.name.toLowerCase() : '';
+            const handle = user.handle ? user.handle.toLowerCase() : '';
+            return name.includes(searchTerm) || handle.includes(searchTerm);
+        });
+
+        // Step 3: Rank the results. Users you follow are prioritized and appear first.
+        const rankedResults = filteredResults.sort((a, b) => {
+            const isAFollowing = currentUserFollowing.includes(a.id);
+            const isBFollowing = currentUserFollowing.includes(b.id);
+
+            if (isAFollowing && !isBFollowing) return -1; // a comes first
+            if (!isAFollowing && isBFollowing) return 1;  // b comes first
+            return 0; // keep original order
+        });
+        
+        setResults(rankedResults.filter(u => u.id !== currentUserId));
+
       } catch (e) {
         console.error("Search failed:", e);
       } finally {
@@ -68,7 +107,7 @@ export default function SearchScreen({ navigation }) {
 
     const debounceTimeout = setTimeout(() => performSearch(), 300);
     return () => clearTimeout(debounceTimeout);
-  }, [query, currentUserId]);
+  }, [query, currentUserId, currentUserFollowing]);
 
   const persist = async (list) => {
     setRecents(list);
@@ -93,12 +132,12 @@ export default function SearchScreen({ navigation }) {
     const loadRecentsData = async () => {
       if (recents.length > 0) {
         const usersRef = db.collection('users');
-        // Use v8 compat syntax for 'in' queries on document IDs
         const q = usersRef.where(firebase.firestore.FieldPath.documentId(), 'in', recents.slice(0, 10));
-        // Use .get()
         const snapshot = await q.get();
         const userMap = new Map(snapshot.docs.map(doc => [doc.id, { id: doc.id, ...doc.data() }]));
         setRecentsUsers(recents.map(id => userMap.get(id)).filter(Boolean));
+      } else {
+        setRecentsUsers([]);
       }
     }
     loadRecentsData();
@@ -113,37 +152,41 @@ export default function SearchScreen({ navigation }) {
     }
   };
 
-  // ... (rest of the component is unchanged)
-
   // shared row renderer
-  const UserRow = ({ user, showDelete }) => (
-    <View style={styles.row}>
-      <Pressable
-        style={styles.rowPressable}
-        onPress={() => navigateToProfile(user)}
-      >
-        <Image source={{ uri: user.avatar }} style={styles.avatar} />
-        <View style={styles.textWrap}>
-          <Text style={styles.name}>{user.name}</Text>
-          <Text style={styles.handle}>{user.handle}</Text>
-          {user.bio && !showDelete && (
-            <Text numberOfLines={1} style={styles.bio}>
-              {user.bio}
-            </Text>
-          )}
+  const UserRow = ({ user, showDelete }) => {
+    const isFollowing = currentUserFollowing.includes(user.id);
+    return (
+        <View style={styles.row}>
+            <Pressable
+                style={styles.rowPressable}
+                onPress={() => navigateToProfile(user)}
+            >
+                <Image source={{ uri: user.avatar }} style={styles.avatar} />
+                <View style={styles.textWrap}>
+                    <View style={styles.nameRow}>
+                        <Text style={styles.name}>{user.name}</Text>
+                        {isFollowing && <MaterialIcons name="how-to-reg" size={16} color="#8BA637" style={styles.followingIcon} />}
+                    </View>
+                    <Text style={styles.handle}>{user.handle}</Text>
+                    {user.bio && !showDelete && (
+                        <Text numberOfLines={1} style={styles.bio}>
+                        {user.bio}
+                        </Text>
+                    )}
+                </View>
+            </Pressable>
+            {showDelete && (
+                <Pressable
+                onPress={() => removeRecent(user.id)}
+                style={styles.closeBtn}
+                hitSlop={8}
+                >
+                <MaterialIcons name="close" size={20} color="#999" />
+                </Pressable>
+            )}
         </View>
-      </Pressable>
-      {showDelete && (
-        <Pressable
-          onPress={() => removeRecent(user.id)}
-          style={styles.closeBtn}
-          hitSlop={8}
-        >
-          <MaterialIcons name="close" size={20} color="#999" />
-        </Pressable>
-      )}
-    </View>
-  );
+    );
+  }
 
   const showResults = query.trim().length > 0;
 
@@ -247,10 +290,17 @@ const styles = StyleSheet.create({
   rowPressable: { flexDirection: 'row', alignItems: 'center', flex: 1 },
   avatar: { width: 48, height: 48, borderRadius: 24, marginRight: 12 },
   textWrap: { flex: 1 },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   name: {
     fontSize: 16,
     fontFamily: 'PatrickHand-Regular',
     color: '#53544D',
+  },
+  followingIcon: {
+    marginLeft: 6,
   },
   handle: {
     fontSize: 14,

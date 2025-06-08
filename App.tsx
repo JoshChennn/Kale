@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { View, Text, TextInput, Button, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, Button, StyleSheet, ActivityIndicator } from 'react-native';
 import { useFonts } from 'expo-font';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -8,8 +8,8 @@ import {
   CardStyleInterpolators,
 } from '@react-navigation/stack';
 import { MaterialIcons } from '@expo/vector-icons';
-import { auth } from './firebaseConfig';
-import { User } from 'firebase/auth';
+import { auth, db } from './firebaseConfig'; // Import db
+import { User as FirebaseUser } from 'firebase/auth';
 
 import FeedScreen from './FeedScreen';
 import ProfileScreen from './ProfileScreen';
@@ -17,34 +17,39 @@ import ProfileModal from './ProfileModal.js';
 import PostScreen from './PostScreen';
 import StoryViewer from './StoryViewer';
 import SearchScreen from './SearchScreen';
-// Import both screens in the posting flow:
 import SelectPhotoScreen from './SelectPhotoScreen';
 import CreatePostDetailsScreen from './CreatePostDetailsScreen';
 
+// Import the new auth and profile creation screens
+import PhoneNumberScreen from './PhoneNumberScreen';
+import VerifyCodeScreen from './VerifyCodeScreen';
+import CreateProfileScreen from './CreateProfileScreen';
 
 const Tab = createBottomTabNavigator();
 const FeedStack = createStackNavigator();
 const RootStack = createStackNavigator();
-
-// New stack for creating a post:
 const CreatePostStack = createStackNavigator();
-const AuthStack = createStackNavigator();
+
+type AuthStackParamList = {
+  PhoneNumber: undefined;
+  VerifyCode: { 
+    phoneNumber: string;
+    verificationId: string;
+  };
+};
+
+type CreateProfileStackParamList = {
+  CreateProfile: undefined;
+};
+
+const AuthStack = createStackNavigator<AuthStackParamList>();
+const CreateProfileStack = createStackNavigator<CreateProfileStackParamList>();
 
 function CreatePostStackScreen() {
   return (
-    <CreatePostStack.Navigator
-      screenOptions={{ headerShown: false }}
-    >
-      {/* First screen: select photos */}
-      <CreatePostStack.Screen
-        name="SelectPhoto"
-        component={SelectPhotoScreen}
-      />
-      {/* Second screen: enter caption/tags */}
-      <CreatePostStack.Screen
-        name="PostDetails"
-        component={CreatePostDetailsScreen}
-      />
+    <CreatePostStack.Navigator screenOptions={{ headerShown: false }}>
+      <CreatePostStack.Screen name="SelectPhoto" component={SelectPhotoScreen} />
+      <CreatePostStack.Screen name="PostDetails" component={CreatePostDetailsScreen} />
     </CreatePostStack.Navigator>
   );
 }
@@ -66,7 +71,7 @@ function FeedStackScreen() {
   );
 }
 
-function MainTabs({ currentUser }: { currentUser: User }) {
+function MainTabs({ currentUser }: { currentUser: FirebaseUser }) {
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -107,7 +112,6 @@ function MainTabs({ currentUser }: { currentUser: User }) {
         component={SearchScreen}
         options={{ title: 'Search' }}
       />
-      {/* Use the new CreatePostStackScreen here */}
       <Tab.Screen
         name="CreatePost"
         component={CreatePostStackScreen}
@@ -122,27 +126,56 @@ function MainTabs({ currentUser }: { currentUser: User }) {
   );
 }
 
+// Updated Auth stack with phone verification flow
 function AuthStackScreen() {
   return (
     <AuthStack.Navigator screenOptions={{ headerShown: false }}>
-      <AuthStack.Screen name="Auth" component={AuthScreen} />
+      <AuthStack.Screen name="PhoneNumber" component={PhoneNumberScreen} />
+      <AuthStack.Screen name="VerifyCode" component={VerifyCodeScreen} />
     </AuthStack.Navigator>
   );
 }
+
+// New stack for the isolated profile creation step
+function CreateProfileStackScreen({ onProfileCreated }: { onProfileCreated: () => void }) {
+    return (
+      <CreateProfileStack.Navigator screenOptions={{ headerShown: false }}>
+        <CreateProfileStack.Screen name="CreateProfile">
+          {props => <CreateProfileScreen {...props} onProfileCreated={onProfileCreated} />}
+        </CreateProfileStack.Screen>
+      </CreateProfileStack.Navigator>
+    );
+  }
 
 export default function App() {
   const [fontsLoaded] = useFonts({
     'PatrickHand-Regular': require('./assets/fonts/PatrickHand-Regular.ttf'),
   });
-  const [currentUser, setCurrentUser] = React.useState<User | null>(null);
+  const [currentUser, setCurrentUser] = React.useState<FirebaseUser | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [isProfileComplete, setIsProfileComplete] = React.useState(false); // New state
 
   React.useEffect(() => {
-    // Use the v8 compat syntax for onAuthStateChanged
-    const unsubscribe = auth.onAuthStateChanged(user => {
-      setCurrentUser(user as any);
+    const unsubscribe = auth.onAuthStateChanged(async (user) => {
+      setLoading(true);
+      if (user) {
+        const userDocRef = db.collection('users').doc(user.uid);
+        const docSnap = await userDocRef.get();
+        
+        setCurrentUser(user as FirebaseUser);
+        
+        if (docSnap.exists) {
+          setIsProfileComplete(true);
+        } else {
+          setIsProfileComplete(false);
+        }
+      } else {
+        setCurrentUser(null);
+        setIsProfileComplete(false);
+      }
       setLoading(false);
     });
+
     return unsubscribe;
   }, []);
 
@@ -156,7 +189,9 @@ export default function App() {
 
   return (
     <NavigationContainer>
-      {currentUser ? (
+      {!currentUser ? (
+        <AuthStackScreen />
+      ) : isProfileComplete ? (
         <RootStack.Navigator screenOptions={{ headerShown: false }}>
           <RootStack.Screen name="MainTabs">
             {props => <MainTabs {...props} currentUser={currentUser} />}
@@ -178,90 +213,14 @@ export default function App() {
           />
         </RootStack.Navigator>
       ) : (
-        <AuthStackScreen />
+        <CreateProfileStackScreen onProfileCreated={() => setIsProfileComplete(true)} />
       )}
     </NavigationContainer>
   );
 }
 
-function AuthScreen() {
-  const [email, setEmail] = React.useState('');
-  const [password, setPassword] = React.useState('');
-  const [error, setError] = React.useState('');
-
-  const handleSignUp = async () => {
-    setError('');
-    try {
-      // Use the v8 compat syntax
-      await auth.createUserWithEmailAndPassword(email, password);
-    } catch (e: any) {
-      setError(e.message);
-    }
-  };
-
-  const handleSignIn = async () => {
-    setError('');
-    try {
-      // Use the v8 compat syntax
-      await auth.signInWithEmailAndPassword(email, password);
-    } catch (e: any) {
-      setError(e.message);
-    }
-  };
-
-  return (
-    <View style={styles.authContainer}>
-      <Text style={styles.authTitle}>KALE</Text>
-      <TextInput
-        style={styles.authInput}
-        placeholder="Email (e.g., bigbird@sesame.com)"
-        value={email}
-        onChangeText={setEmail}
-        autoCapitalize="none"
-        keyboardType="email-address"
-      />
-      <TextInput
-        style={styles.authInput}
-        placeholder="Password (e.g., 123456)"
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry
-      />
-      {error ? <Text style={styles.authError}>{error}</Text> : null}
-      <Button title="Sign In" onPress={handleSignIn} color="#8BA637" />
-      <View style={{height: 10}} />
-      <Button title="Sign Up" onPress={handleSignUp} color="#53544D" />
-    </View>
-  );
-}
+// REMOVED old AuthScreen component
 
 const styles = StyleSheet.create({
-  authContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    padding: 20,
-    backgroundColor: '#F2F2F2',
-  },
-  authTitle: {
-    fontSize: 60,
-    fontFamily: 'PatrickHand-Regular',
-    color: '#8BA637',
-    textAlign: 'center',
-    marginBottom: 40,
-  },
-  authInput: {
-    backgroundColor: '#fff',
-    height: 50,
-    borderColor: '#ddd',
-    borderWidth: 1,
-    marginBottom: 15,
-    paddingHorizontal: 15,
-    borderRadius: 8,
-    fontSize: 16,
-  },
-  authError: {
-    color: 'red',
-    textAlign: 'center',
-    marginBottom: 10,
-  },
+    // Keep styles used by other components if any, or remove if unused.
 });
