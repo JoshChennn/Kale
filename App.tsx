@@ -141,7 +141,13 @@ function CreateProfileStackScreen({ onProfileCreated }: { onProfileCreated: () =
     return (
       <CreateProfileStack.Navigator screenOptions={{ headerShown: false }}>
         <CreateProfileStack.Screen name="CreateProfile">
-          {props => <CreateProfileScreen {...props} onProfileCreated={onProfileCreated} />}
+          {(screenProps) => (
+            <CreateProfileScreen
+              navigation={screenProps.navigation}
+              route={screenProps.route}
+              onProfileCreated={onProfileCreated}
+            />
+          )}
         </CreateProfileStack.Screen>
       </CreateProfileStack.Navigator>
     );
@@ -218,9 +224,3 @@ export default function App() {
     </NavigationContainer>
   );
 }
-
-// REMOVED old AuthScreen component
-
-const styles = StyleSheet.create({
-    // Keep styles used by other components if any, or remove if unused.
-});

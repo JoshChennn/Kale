@@ -1,173 +1,280 @@
 import * as React from 'react';
-import { View, Text, TextInput, Button, StyleSheet, Alert, ActivityIndicator } from 'react-native';
-import { auth, db, firebase } from './firebaseConfig';
+import {
+  View,
+  Text,
+  TextInput,
+  StyleSheet,
+  Alert,
+  ActivityIndicator,
+  Pressable,
+  KeyboardAvoidingView,
+  Platform,
+  Keyboard,
+  ScrollView,
+  StatusBar,
+} from 'react-native';
+import { FirebaseRecaptchaVerifierModal } from 'expo-firebase-recaptcha';
+import { firebase } from './firebaseConfig';
+import { StackScreenProps } from '@react-navigation/stack';
 
-type Props = {
+type RootStackParamList = {
+  CreateProfile: undefined;
+  VerifyCode: {
+    verificationId: string;
+    phoneNumber: string;
+  };
+};
+
+type Props = StackScreenProps<RootStackParamList, 'CreateProfile'> & {
   onProfileCreated: () => void;
 };
 
-// Simple debounce function
-function debounce(func: (...args: any[]) => void, delay: number) {
-  let timeout: NodeJS.Timeout;
-  return (...args: any[]) => {
-    clearTimeout(timeout);
-    timeout = setTimeout(() => func(...args), delay);
-  };
-}
+const PHONE_DIGITS = 10;
 
-export default function CreateProfileScreen({ onProfileCreated }: Props) {
-  const [name, setName] = React.useState('');
-  const [username, setUsername] = React.useState('');
+export default function CreateProfileScreen({ navigation, onProfileCreated }: Props) {
+  const recaptchaVerifier = React.useRef<FirebaseRecaptchaVerifierModal>(null);
+  const inputRef = React.useRef<TextInput>(null);
+
+  const [phoneNumber, setPhoneNumber] = React.useState('');
+  const [countryCode] = React.useState('+1');
   const [loading, setLoading] = React.useState(false);
-  const [usernameAvailable, setUsernameAvailable] = React.useState<boolean | null>(null);
-  const [isCheckingUsername, setIsCheckingUsername] = React.useState(false);
+  const [message, setMessage] = React.useState('');
 
-  // Function to check username availability
-  const checkUsername = React.useCallback(
-    async (text: string) => {
-      if (text.length < 3) {
-        setUsernameAvailable(null);
-        setIsCheckingUsername(false);
-        return;
-      }
-      const formattedUsername = text.toLowerCase();
-      const usersRef = db.collection('users');
-      const query = usersRef.where('username', '==', formattedUsername);
-      const querySnapshot = await query.get();
-      setUsernameAvailable(querySnapshot.empty);
-      setIsCheckingUsername(false);
-    },
-    []
-  );
-
-  const debouncedCheckUsername = React.useMemo(() => debounce(checkUsername, 500), [checkUsername]);
-
-  const handleUsernameChange = (text: string) => {
-    const formatted = text.replace(/[^a-zA-Z0-9_.]/g, '').toLowerCase();
-    setUsername(formatted);
-    setIsCheckingUsername(true);
-    setUsernameAvailable(null); // Reset on change
-    debouncedCheckUsername(formatted);
-  };
-
-  const handleCreateAccount = async () => {
-    if (!name.trim()) {
-      Alert.alert("Invalid Name", "Please enter your name.");
+  const handleSendVerification = async () => {
+    // Basic validation
+    if (phoneNumber.length !== PHONE_DIGITS) {
+      Alert.alert(
+        'Invalid Phone Number',
+        `Please enter a full ${PHONE_DIGITS}-digit phone number.`
+      );
       return;
     }
-    if (!username.trim() || !usernameAvailable) {
-      Alert.alert("Invalid Username", "Please choose a valid and available username.");
+    const formattedPhoneNumber = `${countryCode}${phoneNumber}`;
+
+    // Ensure the reCAPTCHA verifier is ready
+    if (!recaptchaVerifier.current) {
+      Alert.alert(
+        'Error',
+        'reCAPTCHA verifier not initialized. Please try again.'
+      );
       return;
     }
+
     setLoading(true);
-
-    const user = auth.currentUser;
-    if (!user) {
-      Alert.alert("Error", "No user is signed in. Please restart the app.");
-      setLoading(false);
-      return;
-    }
-
-    const userDocRef = db.collection('users').doc(user.uid);
-    const userData = {
-      name: name.trim(),
-      username: username.trim().toLowerCase(),
-      phoneNumber: user.phoneNumber,
-      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-    };
+    setMessage(''); // Clear previous errors
 
     try {
-      await userDocRef.set(userData);
-      onProfileCreated(); // Signal to App.tsx that profile is complete
-    } catch (error: any) {
-      Alert.alert("Failed to create account", error.message);
+      const phoneProvider = new firebase.auth.PhoneAuthProvider();
+      const verificationId = await phoneProvider.verifyPhoneNumber(
+        formattedPhoneNumber,
+        recaptchaVerifier.current
+      );
+
+      navigation.navigate('VerifyCode', {
+        verificationId,
+        phoneNumber: formattedPhoneNumber,
+      });
+    } catch (err: any) {
+      const errorMessage = err.message || 'An unknown error occurred.';
+      setMessage(`Error: ${errorMessage}`);
+      Alert.alert('Verification Error', errorMessage);
+      console.error('Phone Verification Error:', err);
+    } finally {
       setLoading(false);
     }
   };
   
-  const getUsernameFeedback = () => {
-    if (isCheckingUsername) {
-      return <ActivityIndicator size="small" color="#666" />;
+  const renderDigitBoxes = () => {
+    const boxes = [];
+    for (let i = 0; i < PHONE_DIGITS; i++) {
+      const digit = phoneNumber[i] || '';
+      const isCurrent = i === phoneNumber.length;
+      boxes.push(
+        <View key={i} style={styles.digitBox}>
+          <Text style={styles.digitText}>{digit}</Text>
+          <View
+            style={[
+              styles.digitUnderline,
+              isCurrent && styles.digitUnderlineActive,
+            ]}
+          />
+        </View>
+      );
     }
-    if (username.length > 0 && username.length < 3) {
-      return <Text style={styles.feedbackText}>Username must be at least 3 characters.</Text>;
-    }
-    if (usernameAvailable === true) {
-      return <Text style={[styles.feedbackText, { color: 'green' }]}>@{username} is available!</Text>;
-    }
-    if (usernameAvailable === false) {
-      return <Text style={[styles.feedbackText, { color: 'red' }]}>@{username} is already taken.</Text>;
-    }
-    return <View style={{height: 20}} />; // Placeholder for layout stability
-  }
+    return boxes;
+  };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Create Your Profile</Text>
-      <Text style={styles.subtitle}>This is how others will see you on KALE.</Text>
-      
-      <TextInput
-        style={styles.input}
-        placeholder="Full Name (e.g., Bert Smith)"
-        value={name}
-        onChangeText={setName}
-        autoCapitalize="words"
-      />
+    <KeyboardAvoidingView
+      style={styles.keyboardAvoidingView}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
+      <StatusBar barStyle="light-content" />
+      <ScrollView
+        contentContainerStyle={{ flexGrow: 1 }}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+      >
+        <Pressable style={styles.container} onPress={Keyboard.dismiss}>
+          <FirebaseRecaptchaVerifierModal
+            ref={recaptchaVerifier}
+            firebaseConfig={firebase.app().options}
+            title="Prove you are not a robot"
+            cancelLabel="Close"
+          />
 
+          <View style={styles.mainContent}>
+            <Text style={styles.title}>KALE</Text>
+            <Text style={styles.subtitle}>Hey, what's your number?</Text>
+            <Pressable
+              style={styles.phoneInputRow}
+              onPress={() => inputRef.current?.focus()}
+            >
+              <View style={styles.countryCodeBox}>
+                <Text style={styles.countryCodeText}>{countryCode}</Text>
+              </View>
+              {renderDigitBoxes()}
+            </Pressable>
+            
+            {/* Hidden Input to handle keyboard and state */}
       <TextInput
-        style={styles.input}
-        placeholder="username (e.g., big_bird)"
-        value={username}
-        onChangeText={handleUsernameChange}
-        autoCapitalize="none"
-        autoCorrect={false}
-      />
-      <View style={styles.feedbackContainer}>
-        {getUsernameFeedback()}
+                ref={inputRef}
+                style={styles.hiddenInput}
+                keyboardType="number-pad"
+                value={phoneNumber}
+                onChangeText={setPhoneNumber}
+                maxLength={PHONE_DIGITS}
+                caretHidden
+            />
+
       </View>
 
-      <Button title={loading ? "Creating Account..." : "Finish Setup"} onPress={handleCreateAccount} color="#8BA637" disabled={loading || !usernameAvailable} />
+          <View style={styles.footer}>
+            <Pressable
+              onPress={handleSendVerification}
+              style={({ pressed }) => [
+                styles.button,
+                (phoneNumber.length !== PHONE_DIGITS || loading) && styles.buttonDisabled,
+                pressed && { opacity: 0.9 },
+              ]}
+              disabled={phoneNumber.length !== PHONE_DIGITS || loading}
+            >
+              {loading ? (
+                <ActivityIndicator size="small" color="#8BA637" />
+              ) : (
+                <Text style={styles.buttonText}>Send verification text</Text>
+              )}
+            </Pressable>
+
+            {message ? <Text style={styles.errorText}>{message}</Text> : null}
     </View>
+        </Pressable>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
+  keyboardAvoidingView: {
+    flex: 1,
+  },
   container: {
     flex: 1,
+    padding: 24,
+    backgroundColor: '#8BA637',
+    justifyContent: 'space-between',
+  },
+  mainContent: {
+    flex: 1,
     justifyContent: 'center',
-    padding: 20,
-    backgroundColor: '#F2F2F2',
+    alignItems: 'center',
+  },
+  footer: {
+    paddingBottom: 20,
   },
   title: {
-    fontSize: 24,
-    fontWeight: 'bold',
+    fontSize: 60,
+    fontFamily: 'PatrickHand-Regular',
+    color: '#FFFFFF',
     textAlign: 'center',
     marginBottom: 10,
   },
   subtitle: {
-    fontSize: 16,
-    color: '#666',
+    fontSize: 22,
+    fontFamily: 'PatrickHand-Regular',
+    color: '#FFFFFF',
     textAlign: 'center',
-    marginBottom: 30,
+    marginBottom: 60,
   },
-  input: {
-    backgroundColor: '#fff',
-    height: 50,
-    borderColor: '#ddd',
-    borderWidth: 1,
-    marginBottom: 15,
-    paddingHorizontal: 15,
-    borderRadius: 8,
-    fontSize: 16,
-  },
-  feedbackContainer: {
-    height: 25,
+  phoneInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'center',
-    alignItems: 'flex-start',
-    marginBottom: 10,
-    paddingHorizontal: 5
+    width: '100%',
   },
-  feedbackText: {
+  countryCodeBox: {
+    borderBottomWidth: 2,
+    borderColor: '#FFFFFF',
+    paddingBottom: 8,
+    marginRight: 15,
+  },
+  countryCodeText: {
+    fontFamily: 'PatrickHand-Regular',
+    color: '#FFFFFF',
+    fontSize: 30,
+  },
+  digitBox: {
+    width: 24,
+    height: 50,
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    marginHorizontal: 3,
+  },
+  digitText: {
+    fontFamily: 'PatrickHand-Regular',
+    color: '#FFFFFF',
+    fontSize: 30,
+    position: 'absolute',
+    top: 0,
+    height: '100%',
+    textAlignVertical: 'top',
+  },
+  digitUnderline: {
+    width: '100%',
+    height: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+  },
+  digitUnderlineActive: {
+    backgroundColor: '#FFFFFF',
+    height: 3,
+    // Simple blinking effect could be done with animation, but this provides a static highlight
+  },
+  hiddenInput: {
+    position: 'absolute',
+    width: 1,
+    height: 1,
+    opacity: 0,
+  },
+  button: {
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+    minHeight: 50,
+    justifyContent: 'center',
+  },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
+  buttonText: {
+    color: '#8BA637',
+    fontSize: 18,
+    fontFamily: 'PatrickHand-Regular',
+  },
+  errorText: {
+    marginTop: 15,
+    color: '#F2DEDE', // Lighter red for better contrast on green
+    textAlign: 'center',
     fontSize: 14,
-  }
+  },
 });
