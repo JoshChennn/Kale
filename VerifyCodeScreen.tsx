@@ -1,98 +1,165 @@
 import * as React from 'react';
-import { View, Text, TextInput, Button, StyleSheet, Alert, ActivityIndicator } from 'react-native';
+import {
+  View,
+  Text,
+  TextInput,
+  StyleSheet,
+  Alert,
+  ActivityIndicator,
+  Pressable,
+  KeyboardAvoidingView,
+  TouchableWithoutFeedback,
+  Keyboard,
+  Platform,
+} from 'react-native';
 import { auth, firebase } from './firebaseConfig';
-import { StackNavigationProp } from '@react-navigation/stack';
-import { RouteProp } from '@react-navigation/native';
+import { StackScreenProps } from '@react-navigation/stack';
 
-// Must match the types in PhoneNumberScreen
-type RootStackParamList = {
+// Corrected type definitions for the Auth stack
+type AuthStackParamList = {
   PhoneNumber: undefined;
-  VerifyCode: { 
+  VerifyCode: {
     phoneNumber: string;
     verificationId: string;
   };
 };
 
-type Props = {
-  navigation: StackNavigationProp<RootStackParamList, 'VerifyCode'>;
-  route: RouteProp<RootStackParamList, 'VerifyCode'>;
-};
+type Props = StackScreenProps<AuthStackParamList, 'VerifyCode'>;
 
-export default function VerifyCodeScreen({ navigation, route }: Props) {
+export default function VerifyCodeScreen({ route, navigation }: Props) {
   const { verificationId, phoneNumber } = route.params;
   const [verificationCode, setVerificationCode] = React.useState('');
   const [loading, setLoading] = React.useState(false);
 
   const confirmCode = async () => {
     if (loading || verificationCode.length < 6) return;
-
+    Keyboard.dismiss();
     setLoading(true);
     try {
       const credential = firebase.auth.PhoneAuthProvider.credential(
         verificationId,
         verificationCode
       );
+      // Signing in will trigger the onAuthStateChanged listener in App.tsx,
+      // which handles switching to the correct screen.
       await auth.signInWithCredential(credential);
-      // On success, the onAuthStateChanged listener in App.tsx will handle navigation.
-      // We don't need to navigate from here or set loading to false.
+      // The manual navigation call is no longer needed.
     } catch (err: any) {
-      Alert.alert("Verification Failed", "The code you entered is incorrect. Please try again.");
+      Alert.alert(
+        'Verification Failed',
+        'The code you entered is incorrect. Please try again.'
+      );
       setLoading(false);
     }
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Verify your number</Text>
-      <Text style={styles.subtitle}>Enter the 6-digit code sent to {phoneNumber}</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="123456"
-        value={verificationCode}
-        onChangeText={setVerificationCode}
-        keyboardType="number-pad"
-        maxLength={6}
-        autoFocus
-        textContentType="oneTimeCode"
-      />
-      {loading ? (
-         <ActivityIndicator size="large" color="#8BA637" />
-      ) : (
-        <Button title="Verify & Sign In" onPress={confirmCode} color="#8BA637" />
-      )}
-    </View>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={styles.container}
+      keyboardVerticalOffset={15}
+    >
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+        <View style={styles.container}>
+          <View style={styles.content}>
+            <Text style={styles.title}>Verify your number</Text>
+            <Text style={styles.subtitle}>
+              Enter the 6-digit code sent to {phoneNumber}
+            </Text>
+            <TextInput
+              style={styles.input}
+              placeholder="123456"
+              placeholderTextColor="#F2F2F250"
+              value={verificationCode}
+              onChangeText={setVerificationCode}
+              keyboardType="number-pad"
+              maxLength={6}
+              autoFocus
+              textContentType="oneTimeCode"
+            />
+          </View>
+
+          <View style={styles.bottomContainer}>
+            {loading ? (
+              <ActivityIndicator
+                size="small"
+                color="#F2F2F2"
+                style={{ paddingVertical: 12 }}
+              />
+            ) : (
+              <Pressable
+                onPress={confirmCode}
+                disabled={verificationCode.length < 6}
+                style={({ pressed }) => [
+                  styles.buttonContainer,
+                  pressed && { opacity: 0.8 },
+                  verificationCode.length < 6 && { opacity: 0.5 },
+                ]}
+              >
+                <Text style={styles.buttonText}>Verify & Sign In</Text>
+              </Pressable>
+            )}
+          </View>
+        </View>
+      </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#8BA637',
+  },
+  content: {
+    flex: 1,
     justifyContent: 'center',
+    alignItems: 'center',
     padding: 20,
-    backgroundColor: '#F2F2F2',
   },
   title: {
-    fontSize: 24,
-    fontWeight: 'bold',
+    fontSize: 36,
+    fontFamily: 'PatrickHand-Regular',
+    color: '#F2F2F2',
     textAlign: 'center',
     marginBottom: 10,
   },
   subtitle: {
-    fontSize: 16,
-    color: '#666',
+    fontSize: 20,
+    fontFamily: 'PatrickHand-Regular',
+    color: '#F2F2F2',
     textAlign: 'center',
-    marginBottom: 30,
+    marginBottom: 40,
   },
   input: {
-    backgroundColor: '#fff',
-    height: 60,
-    borderColor: '#ddd',
-    borderWidth: 1,
-    marginBottom: 20,
-    paddingHorizontal: 15,
-    borderRadius: 8,
-    fontSize: 24,
-    textAlign: 'center',
+    color: '#F2F2F2',
+    fontSize: 40,
     letterSpacing: 10,
+    fontFamily: 'PatrickHand-Regular',
+    textAlign: 'center',
+    width: '90%',
+    height: 50,
+  },
+  bottomContainer: {
+    padding: 20,
+    paddingBottom: 60,
+  },
+  buttonContainer: {
+    backgroundColor: '#F2F2F2',
+    borderRadius: 25,
+    height: 48,
+    justifyContent: 'center',
+  },
+  buttonText: {
+    color: '#8BA637',
+    fontSize: 20,
+    fontFamily: 'PatrickHand-Regular',
+    textAlign: 'center',
+  },
+  errorText: {
+    marginTop: 15,
+    color: 'yellow',
+    textAlign: 'center',
+    fontSize: 14,
   },
 });

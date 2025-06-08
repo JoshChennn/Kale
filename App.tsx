@@ -23,7 +23,7 @@ import CreatePostDetailsScreen from './CreatePostDetailsScreen';
 // Import the new auth and profile creation screens
 import PhoneNumberScreen from './PhoneNumberScreen';
 import VerifyCodeScreen from './VerifyCodeScreen';
-import CreateProfileScreen from './CreateProfileScreen';
+import OnboardingQuestionScreen from './OnboardingQuestionScreen';
 
 const Tab = createBottomTabNavigator();
 const FeedStack = createStackNavigator();
@@ -142,7 +142,7 @@ function CreateProfileStackScreen({ onProfileCreated }: { onProfileCreated: () =
       <CreateProfileStack.Navigator screenOptions={{ headerShown: false }}>
         <CreateProfileStack.Screen name="CreateProfile">
           {(screenProps) => (
-            <CreateProfileScreen
+            <OnboardingQuestionScreen
               navigation={screenProps.navigation}
               route={screenProps.route}
               onProfileCreated={onProfileCreated}

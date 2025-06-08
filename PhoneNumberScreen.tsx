@@ -16,9 +16,12 @@ import {
 import { FirebaseRecaptchaVerifierModal } from 'expo-firebase-recaptcha';
 import { firebase } from './firebaseConfig';
 import { StackScreenProps } from '@react-navigation/stack';
-import CountryPicker, { Country, CountryCode } from 'react-native-country-picker-modal';
+import CountryPicker, {
+  Country,
+  CountryCode,
+} from 'react-native-country-picker-modal';
 
-// --- Type definitions (unchanged) ---
+// --- Type definitions (Updated for clarity) ---
 type AuthStackParamList = {
   PhoneNumber: undefined;
   VerifyCode: {
@@ -40,13 +43,12 @@ type CountryPickerTheme = {
 // 1. Define a custom theme for the country picker modal
 const pickerTheme: CountryPickerTheme = {
   fontFamily: 'PatrickHand-Regular',
-  backgroundColor: '#F2F2F2',       // Modal background
+  backgroundColor: '#F2F2F2', // Modal background
   onBackgroundTextColor: '#53544D', // Text color in modal
-  primaryColor: '#8BA637',          // Color of the selected country's checkmark
-  primaryColorVariant: '#F2F2F2',   // Background color of pressed list items
+  primaryColor: '#8BA637', // Color of the selected country's checkmark
+  primaryColorVariant: '#F2F2F2', // Background color of pressed list items
   filterPlaceholderTextColor: '#b9b9b9',
 };
-
 
 export default function PhoneNumberScreen({ navigation }: Props) {
   const recaptchaVerifier = React.useRef<FirebaseRecaptchaVerifierModal>(null);
@@ -70,11 +72,11 @@ export default function PhoneNumberScreen({ navigation }: Props) {
     const fullPhoneNumber = `+${callingCode}${phoneNumber.trim()}`;
 
     if (phoneNumber.trim().length < 8) {
-      Alert.alert("Invalid Phone Number", "Please enter a valid phone number.");
+      Alert.alert('Invalid Phone Number', 'Please enter a valid phone number.');
       return;
     }
     if (!recaptchaVerifier.current) {
-      Alert.alert("Error", "reCAPTCHA verifier not initialized.");
+      Alert.alert('Error', 'reCAPTCHA verifier not initialized.');
       return;
     }
 
@@ -87,17 +89,20 @@ export default function PhoneNumberScreen({ navigation }: Props) {
         fullPhoneNumber,
         recaptchaVerifier.current
       );
-      navigation.navigate('VerifyCode', { verificationId, phoneNumber: fullPhoneNumber });
+      navigation.navigate('VerifyCode', {
+        verificationId,
+        phoneNumber: fullPhoneNumber,
+      });
     } catch (err: any) {
       setMessage(`Error: ${err.message}`);
-      Alert.alert("Verification Error", err.message);
+      Alert.alert('Verification Error', err.message);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <KeyboardAvoidingView 
+    <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={styles.container}
       keyboardVerticalOffset={15}
@@ -107,16 +112,16 @@ export default function PhoneNumberScreen({ navigation }: Props) {
           <FirebaseRecaptchaVerifierModal
             ref={recaptchaVerifier}
             firebaseConfig={firebase.app().options}
-            title="I am not a robot (I promise)"
+            title="I'm not a robot (I promise)"
             cancelLabel="Close"
           />
-          
+
           <View style={styles.content}>
             <Text style={styles.title}>KALE</Text>
             <Text style={styles.subtitle}>Hey, what's your number?</Text>
 
             <View style={styles.phoneInputContainer}>
-              <Pressable 
+              <Pressable
                 onPress={() => setShowCountryPicker(true)}
                 style={styles.flagButton}
               >
@@ -149,7 +154,11 @@ export default function PhoneNumberScreen({ navigation }: Props) {
 
           <View style={styles.bottomContainer}>
             {loading ? (
-              <ActivityIndicator size="small" color="#8BA637" style={{ paddingVertical: 12 }}/>
+              <ActivityIndicator
+                size="small"
+                color="#8BA637"
+                style={{ paddingVertical: 12 }}
+              />
             ) : (
               <Pressable
                 onPress={handleSendVerification}
@@ -157,7 +166,7 @@ export default function PhoneNumberScreen({ navigation }: Props) {
                 style={({ pressed }) => [
                   styles.buttonContainer,
                   pressed && { opacity: 0.8 },
-                  !phoneNumber && { opacity: 0.5 }
+                  !phoneNumber && { opacity: 0.5 },
                 ]}
               >
                 <Text style={styles.buttonText}>Send verification text</Text>
