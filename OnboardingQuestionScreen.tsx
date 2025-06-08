@@ -12,8 +12,10 @@ import { auth, db } from './firebaseConfig';
 
 // This param list should now match the OnboardingStack navigator in App.tsx
 type OnboardingStackParamList = {
+  OnboardingIntro: undefined;
   OnboardingQuestion: undefined;
   ConnectContacts: undefined;
+  AddFriends: undefined;
 };
 
 // The component now receives navigation props from the stack navigator
