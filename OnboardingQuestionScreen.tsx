@@ -8,17 +8,16 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { StackScreenProps } from '@react-navigation/stack';
-import { auth, db } from './firebaseConfig'; // Import auth and db
+import { auth, db } from './firebaseConfig';
 
-// This param list should match the one for its parent navigator in App.tsx
-type CreateProfileStackParamList = {
-  CreateProfile: undefined;
+// This param list should now match the OnboardingStack navigator in App.tsx
+type OnboardingStackParamList = {
+  OnboardingQuestion: undefined;
+  ConnectContacts: undefined;
 };
 
-// Combine navigator props with the custom onProfileCreated prop from App.tsx
-type Props = StackScreenProps<CreateProfileStackParamList, 'CreateProfile'> & {
-  onProfileCreated: () => void;
-};
+// The component now receives navigation props from the stack navigator
+type Props = StackScreenProps<OnboardingStackParamList, 'OnboardingQuestion'>;
 
 const ONBOARDING_OPTIONS = [
   'I want to escape Instagram',
@@ -27,10 +26,10 @@ const ONBOARDING_OPTIONS = [
   'Other',
 ];
 
-export default function OnboardingQuestionScreen({ onProfileCreated }: Props) {
+export default function OnboardingQuestionScreen({ navigation }: Props) {
   const [loading, setLoading] = React.useState(false);
 
-  // This function now saves the user's answer to Firestore and completes the setup
+  // This function now saves the user's answer and navigates to the next step
   const handleOptionSelect = async (option: string) => {
     setLoading(true);
     const currentUser = auth.currentUser;
@@ -56,11 +55,11 @@ export default function OnboardingQuestionScreen({ onProfileCreated }: Props) {
         username: '',
         bio: '',
         photoURL: '',
+        contactsEnabled: null, // Add a placeholder for the next step
       });
 
-      // On success, call the function passed from App.tsx.
-      // This will update the state and switch the navigator to the main app.
-      onProfileCreated();
+      // On success, navigate to the next screen in the onboarding flow.
+      navigation.navigate('ConnectContacts');
     } catch (error) {
       console.error('Failed to create user profile:', error);
       Alert.alert(

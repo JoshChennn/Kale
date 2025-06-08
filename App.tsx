@@ -8,7 +8,7 @@ import {
   CardStyleInterpolators,
 } from '@react-navigation/stack';
 import { MaterialIcons } from '@expo/vector-icons';
-import { auth, db } from './firebaseConfig'; // Import db
+import { auth, db } from './firebaseConfig';
 import { User as FirebaseUser } from 'firebase/auth';
 
 import FeedScreen from './FeedScreen';
@@ -20,30 +20,33 @@ import SearchScreen from './SearchScreen';
 import SelectPhotoScreen from './SelectPhotoScreen';
 import CreatePostDetailsScreen from './CreatePostDetailsScreen';
 
-// Import the new auth and profile creation screens
+// Import the auth and onboarding screens
 import PhoneNumberScreen from './PhoneNumberScreen';
 import VerifyCodeScreen from './VerifyCodeScreen';
 import OnboardingQuestionScreen from './OnboardingQuestionScreen';
+import ConnectContactsScreen from './ConnectContactsScreen'; // Import the new screen
 
 const Tab = createBottomTabNavigator();
 const FeedStack = createStackNavigator();
 const RootStack = createStackNavigator();
 const CreatePostStack = createStackNavigator();
+const AuthStack = createStackNavigator<AuthStackParamList>();
 
+// Define param lists for navigators
 type AuthStackParamList = {
   PhoneNumber: undefined;
-  VerifyCode: { 
+  VerifyCode: {
     phoneNumber: string;
     verificationId: string;
   };
 };
 
-type CreateProfileStackParamList = {
-  CreateProfile: undefined;
+// New navigator and param list for the entire onboarding flow
+type OnboardingStackParamList = {
+  OnboardingQuestion: undefined;
+  ConnectContacts: undefined;
 };
-
-const AuthStack = createStackNavigator<AuthStackParamList>();
-const CreateProfileStack = createStackNavigator<CreateProfileStackParamList>();
+const OnboardingStack = createStackNavigator<OnboardingStackParamList>();
 
 function CreatePostStackScreen() {
   return (
@@ -126,7 +129,7 @@ function MainTabs({ currentUser }: { currentUser: FirebaseUser }) {
   );
 }
 
-// Updated Auth stack with phone verification flow
+// Auth stack for phone verification flow
 function AuthStackScreen() {
   return (
     <AuthStack.Navigator screenOptions={{ headerShown: false }}>
@@ -136,20 +139,23 @@ function AuthStackScreen() {
   );
 }
 
-// New stack for the isolated profile creation step
-function CreateProfileStackScreen({ onProfileCreated }: { onProfileCreated: () => void }) {
+// New stack for the entire onboarding process
+function OnboardingStackScreen({ onOnboardingComplete }: { onOnboardingComplete: () => void }) {
     return (
-      <CreateProfileStack.Navigator screenOptions={{ headerShown: false }}>
-        <CreateProfileStack.Screen name="CreateProfile">
-          {(screenProps) => (
-            <OnboardingQuestionScreen
-              navigation={screenProps.navigation}
-              route={screenProps.route}
-              onProfileCreated={onProfileCreated}
+      <OnboardingStack.Navigator screenOptions={{ headerShown: false }}>
+        <OnboardingStack.Screen
+          name="OnboardingQuestion"
+          component={OnboardingQuestionScreen}
+        />
+        <OnboardingStack.Screen name="ConnectContacts">
+          {(props) => (
+            <ConnectContactsScreen
+              {...props}
+              onOnboardingComplete={onOnboardingComplete}
             />
           )}
-        </CreateProfileStack.Screen>
-      </CreateProfileStack.Navigator>
+        </OnboardingStack.Screen>
+      </OnboardingStack.Navigator>
     );
   }
 
@@ -159,7 +165,7 @@ export default function App() {
   });
   const [currentUser, setCurrentUser] = React.useState<FirebaseUser | null>(null);
   const [loading, setLoading] = React.useState(true);
-  const [isProfileComplete, setIsProfileComplete] = React.useState(false); // New state
+  const [isProfileComplete, setIsProfileComplete] = React.useState(false);
 
   React.useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (user) => {
@@ -167,9 +173,11 @@ export default function App() {
       if (user) {
         const userDocRef = db.collection('users').doc(user.uid);
         const docSnap = await userDocRef.get();
-        
+
         setCurrentUser(user as FirebaseUser);
-        
+
+        // A profile is "complete" if the user document exists in Firestore.
+        // The OnboardingStack will guide them through creating it.
         if (docSnap.exists) {
           setIsProfileComplete(true);
         } else {
@@ -219,7 +227,7 @@ export default function App() {
           />
         </RootStack.Navigator>
       ) : (
-        <CreateProfileStackScreen onProfileCreated={() => setIsProfileComplete(true)} />
+        <OnboardingStackScreen onOnboardingComplete={() => setIsProfileComplete(true)} />
       )}
     </NavigationContainer>
   );
