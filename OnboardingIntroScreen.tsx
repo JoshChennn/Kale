@@ -128,7 +128,7 @@ export default function OnboardingIntroScreen({ navigation }: Props) {
         </View>
         <Text style={styles.paragraph}>
           Kale is Instagram without the{' '}
-          <Text style={styles.highlightedText}>cocaine.</Text>
+          <Text style={styles.highlightedText}>cocaine</Text>.
         </Text>
 
         <FakeFeedScreenshot />
@@ -136,8 +136,8 @@ export default function OnboardingIntroScreen({ navigation }: Props) {
         <Text style={styles.paragraph}>No reels. No doomscrolling. Just friends.</Text>
         <Text style={styles.paragraph}>🚭 🚭 🚭</Text>
         <Text style={styles.paragraph}>
-          This is the first social app in the world that's designed to be{' '}
-          <Text style={styles.highlightedText}>boring.</Text>
+          The first social app in the world that's designed to be{' '}
+          <Text style={styles.highlightedText}>boring</Text>.
         </Text>
         <Text style={styles.paragraph}>🌱 🌿 🍃</Text>
         <Text style={styles.paragraph}>Sound good?</Text>

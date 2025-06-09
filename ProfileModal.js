@@ -11,14 +11,9 @@ const screenWidth = Dimensions.get('window').width;
 const gridMargin = 6;
 const imgSize = (screenWidth - gridMargin * 4) / 3;
 
-// REMOVED module-scope declarations that depend on component props
-// const currentUserId = auth.currentUser?.uid;
-// const isCurrentUser = userId === currentUserId;
-
 export default function ProfileModal({ navigation, route }) {
   const { userId } = route.params;
 
-  // MOVED declarations inside the component
   const currentUserId = auth.currentUser?.uid;
   const isCurrentUser = userId === currentUserId;
 
@@ -44,10 +39,10 @@ export default function ProfileModal({ navigation, route }) {
     // Check if the current user is following this profile
     let unsubscribeFollowing = () => {};
     if (!isCurrentUser && currentUserId) {
-      const currentUserRef = doc(db, 'users', currentUserId);
-      unsubscribeFollowing = onSnapshot(currentUserRef, (snap) => {
-        const followingList = snap.data()?.following || [];
-        setIsFollowing(followingList.includes(userId));
+      // FIX: Updated path to check for following status based on AddFriendsScreen logic
+      const followingDocRef = doc(db, 'following', currentUserId, 'userFollowing', userId);
+      unsubscribeFollowing = onSnapshot(followingDocRef, (docSnap) => {
+        setIsFollowing(docSnap.exists());
       });
     }
 
@@ -117,12 +112,15 @@ export default function ProfileModal({ navigation, route }) {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.profileHeader}>
-            <Image source={{ uri: user.avatar }} style={styles.profileImage} />
+            {/* FIX: Use photoURL instead of avatar */}
+            <Image source={{ uri: user.photoURL }} style={styles.profileImage} />
             <View style={styles.row}>
-              <Text style={styles.name}>{user.name}</Text>
+              {/* FIX: Use displayName instead of name */}
+              <Text style={styles.name}>{user.displayName}</Text>
               <MaterialIcons name="verified" size={20} color="#8BA637" style={{ marginLeft: 4 }} />
             </View>
-            <Text style={styles.handle}>{user.handle || `@${user.name.toLowerCase().replace(/\s/g, '')}`}</Text>
+            {/* FIX: Use username instead of handle, and update fallback */}
+            <Text style={styles.handle}>{user.username ? `@${user.username}` : `@${(user.displayName || '').toLowerCase().replace(/\s/g, '')}`}</Text>
             <Text style={styles.bio}>{user.bio}</Text>
           </View>
 
@@ -198,6 +196,7 @@ const styles = StyleSheet.create({
     borderColor: '#b9b9b9',  
     marginLeft: 35,
     marginBottom: 12,
+    backgroundColor: '#e6e6e6', // Add a background color for when the image is loading or missing
   },
   row: {
     flexDirection: 'row',

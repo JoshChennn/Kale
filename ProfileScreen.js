@@ -5,19 +5,16 @@ import { db, auth } from './firebaseConfig';
 import { doc, onSnapshot, collection, query, where, orderBy } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { functions } from './firebaseConfig';
+import defaultProfilePhoto from './assets/default-profile-photo.png';
 
 const screenWidth = Dimensions.get('window').width;
 const gridMargin = 6;
 const imgSize = (screenWidth - gridMargin * 4) / 3;
 
-// REMOVED module-scope declarations that depend on component props
-// const currentUserId = auth.currentUser?.uid;
-// const isCurrentUser = userId === currentUserId;
-
 export default function ProfileScreen({ navigation, route }) {
-  const { userId } = route.params;
-
-  // MOVED declarations inside the component
+  // Use optional chaining for safety in case route.params is undefined on first render
+  const userId = route.params?.userId; 
+  
   const currentUserId = auth.currentUser?.uid;
   const isCurrentUser = userId === currentUserId;
 
@@ -26,12 +23,13 @@ export default function ProfileScreen({ navigation, route }) {
   const [isFollowing, setIsFollowing] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Note: 'functions' from firebaseConfig is already initialized, but getFunctions() is the modular way.
-  // We'll stick with the imported 'functions' for consistency with your code.
   const toggleFollowUser = httpsCallable(functions, 'toggleFollowUser');
 
   useEffect(() => {
-    if (!userId) return;
+    if (!userId) {
+      setLoading(false);
+      return;
+    }
     const userRef = doc(db, 'users', userId);
     const unsubscribeUser = onSnapshot(userRef, (docSnap) => {
       if (docSnap.exists()) {
@@ -45,10 +43,10 @@ export default function ProfileScreen({ navigation, route }) {
     // Check if the current user is following this profile
     let unsubscribeFollowing = () => {};
     if (!isCurrentUser && currentUserId) {
-      const currentUserRef = doc(db, 'users', currentUserId);
-      unsubscribeFollowing = onSnapshot(currentUserRef, (snap) => {
-        const followingList = snap.data()?.following || [];
-        setIsFollowing(followingList.includes(userId));
+      // FIX: Updated path to check for following status based on AddFriendsScreen logic
+      const followingDocRef = doc(db, 'following', currentUserId, 'userFollowing', userId);
+      unsubscribeFollowing = onSnapshot(followingDocRef, (docSnap) => {
+        setIsFollowing(docSnap.exists());
       });
     }
     
@@ -110,14 +108,16 @@ export default function ProfileScreen({ navigation, route }) {
         >
           <Pressable>
             <Image
-              source={{ uri: user.avatar }}
+              source={user?.photoURL ? { uri: user.photoURL } : defaultProfilePhoto}
               style={styles.profileImage}
             />
             <View style={styles.row}>
-              <Text style={styles.name}>{user.name}</Text>
+              <Text style={styles.name}>{user?.displayName || 'User'}</Text>
               <MaterialIcons name="verified" size={20} color="#8BA637" style={{ marginLeft: 4 }} />
             </View>
-            <Text style={styles.handle}>{user.handle || `@${user.name.toLowerCase().replace(/\s/g, '')}`}</Text>
+            <Text style={styles.handle}>
+              {user?.username ? `@${user.username}` : `@${(user?.displayName || 'user').toLowerCase().replace(/\s/g, '')}`}
+            </Text>
           </Pressable>
 
           <Text style={styles.bio}>
@@ -196,6 +196,7 @@ const styles = StyleSheet.create({
     marginTop: 69,
     marginLeft: 35,
     marginBottom: 12,
+    backgroundColor: '#e6e6e6', // Add a background color for when the image is loading or missing
   },
 
   row: {
