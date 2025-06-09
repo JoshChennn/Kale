@@ -77,7 +77,7 @@ export default function ConnectContactsScreen({ navigation }: Props) {
       // User denied the permission in the system dialog
       Alert.alert(
         'Permission Required',
-        'Kale is purely a friends app and requires contacts to find people you know. Please enable contacts in your phone settings to continue.',
+        'Kale is a friends app and requires contacts to find people you know. Please enable contacts in your phone settings to continue.',
         [
           { text: 'Okay', style: 'cancel' },
           {
@@ -128,12 +128,6 @@ export default function ConnectContactsScreen({ navigation }: Props) {
             </View>
           </View>
         )}
-      </View>
-      <View style={styles.instructions}>
-        <Text style={styles.instructionText}>
-          1. Select <Text style={styles.boldText}>*Continue*</Text>{'\n'}
-          2. Select <Text style={styles.boldText}>*Allow Full Access*</Text>
-        </Text>
       </View>
       <View style={styles.privacyNote}>
         <Text style={styles.privacyNoteText}>🔒 Kale cares about your privacy and will NEVER text or spam your contacts. Period.</Text>
@@ -220,24 +214,6 @@ const styles = StyleSheet.create({
     fontWeight: '700', // Making it bold since it's the only action
   },
   mockNotificationButtonTextBold: {
-    fontWeight: '700',
-  },
-  instructions: {
-    position: 'absolute',
-    bottom: 120,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-    paddingHorizontal: 40,
-  },
-  instructionText: {
-    fontFamily: 'PatrickHand-Regular',
-    fontSize: 18,
-    color: '#8BA637',
-    textAlign: 'center',
-    lineHeight: 28,
-  },
-  boldText: {
     fontWeight: '700',
   },
   privacyNote: {

@@ -35,24 +35,23 @@ export default function FeedScreen({ navigation }) {
     if (!currentUser) return;
 
     // 1. Get the list of users the current user is following.
-    const userDocRef = doc(db, 'users', currentUser.uid);
-    const unsubscribeUser = onSnapshot(userDocRef, (userSnap) => {
-      const userData = userSnap.data();
-      const following = userData?.following || [];
-      // Include current user's posts in the feed
-      const usersToQuery = [...new Set([currentUser.uid, ...following])]; 
+    const userFollowingRef = collection(db, 'following', currentUser.uid, 'userFollowing');
+    const unsubscribeFollowing = onSnapshot(userFollowingRef, (followingSnap) => {
+      const following = followingSnap.docs.map(doc => doc.id);
+      const usersToQuery = [...new Set([currentUser.uid, ...following])];
 
       if (usersToQuery.length === 0) {
         setPosts([]);
         setLoading(false);
         return;
       }
+      
+      const limitedUsersToQuery = usersToQuery.slice(0, 30);
 
       // 2. Query for posts where the userId is in the `usersToQuery` list.
-      // Firestore 'in' queries are limited to 30 items. For this app, it's fine.
       const postsQuery = query(
         collection(db, 'posts'),
-        where('userId', 'in', usersToQuery.slice(0, 30)),
+        where('userId', 'in', limitedUsersToQuery),
         orderBy('createdAt', 'desc'),
         limit(25)
       );
@@ -73,22 +72,25 @@ export default function FeedScreen({ navigation }) {
 
       // Fetch stories for the same users
       const fetchStories = async () => {
-        const storyPromises = usersToQuery.map(uid => getDocs(query(collection(db, 'users', uid, 'stories'), limit(5))));
+        const storyUsersQuery = query(collection(db, 'users'), where('__name__', 'in', limitedUsersToQuery));
+        const storyUsersSnapshot = await getDocs(storyUsersQuery);
+        const userMap = new Map(storyUsersSnapshot.docs.map(d => [d.id, d.data()]));
+
+        const storyPromises = limitedUsersToQuery.map(uid => getDocs(query(collection(db, 'users', uid, 'stories'), limit(5))));
         const storySnapshots = await Promise.all(storyPromises);
-        
-        const storyUsers = await getDocs(query(collection(db, 'users'), where('__name__', 'in', usersToQuery.slice(0, 30))));
-        const userMap = new Map(storyUsers.docs.map(d => [d.id, d.data()]));
 
         const storyEntries = storySnapshots.map((snapshot, index) => {
           if (!snapshot.empty) {
-            const userId = usersToQuery[index];
+            const userId = limitedUsersToQuery[index];
             const user = userMap.get(userId);
-            return {
-              id: userId,
-              name: user.name,
-              avatar: user.avatar,
-              uriList: snapshot.docs.map(d => ({id: d.id, ...d.data()}))
-            };
+            if (user) {
+              return {
+                id: userId,
+                name: user.displayName, // Corrected from user.name
+                avatar: user.photoURL,  // Corrected from user.avatar
+                uriList: snapshot.docs.map(d => ({id: d.id, ...d.data()}))
+              };
+            }
           }
           return null;
         }).filter(Boolean);
@@ -99,7 +101,7 @@ export default function FeedScreen({ navigation }) {
       return () => unsubscribePosts();
     });
 
-    return () => unsubscribeUser();
+    return () => unsubscribeFollowing();
   }, [currentUser]);
 
 
@@ -134,7 +136,7 @@ export default function FeedScreen({ navigation }) {
                style={styles.commentsBtn}
                onPress={() => navigation.navigate('PostDetail', { post })}
              >
-               <Text style={styles.commentsText}>View comments ({post.commentsCount})</Text>
+               <Text style={styles.commentsText}>View comments ({post.commentsCount || 0})</Text>
              </Pressable>
            </View>
   );
@@ -161,7 +163,7 @@ export default function FeedScreen({ navigation }) {
                 {stories.map(storyBlock => (
                   <Pressable key={storyBlock.id} style={styles.storyItem} onPress={() => navigation.navigate('StoryViewer', { stories: storyBlock.uriList, initialIndex: 0 })}>
                     <Image source={{ uri: storyBlock.avatar }} style={styles.storyImage} />
-                    <Text style={styles.storyName}>{storyBlock.name}</Text>
+                    <Text style={styles.storyName} numberOfLines={1}>{storyBlock.name}</Text>
                   </Pressable>
                 ))}
               </ScrollView>
@@ -210,7 +212,7 @@ const styles = StyleSheet.create({
   findFriendsButtonText: {
     fontFamily: 'PatrickHand-Regular',
     fontSize: 18,
-    color: 'white',
+    color: '#f2f2f2',
   },
   // HEADER
   header: {
@@ -224,14 +226,12 @@ const styles = StyleSheet.create({
   // STORY BAR
   storiesContainer: {
     height: storySize + 30,
-    paddingLeft: 30,
-    paddingBottom: 0,
-    paddingTop: 0,
+    paddingLeft: 20,
+    paddingRight: 20,
     marginBottom: 20,
   },
   storyItem: {
-    width: storySize,
-    marginHorizontal: 10,
+    width: storySize + 10,
     alignItems: 'center',
   },
   storyImage: {
@@ -258,11 +258,13 @@ const styles = StyleSheet.create({
   postCard: {
     marginBottom: 20,
     overflow: 'hidden',
+    width: screenWidth,
   },
   postHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 10,
+    paddingHorizontal: 15,
   },
   postHeaderTextRow: {
     flex: 1,
@@ -289,7 +291,7 @@ const styles = StyleSheet.create({
   },
   postImage: {
     width: '100%',
-    aspectRatio: '1',
+    aspectRatio: 1,
     resizeMode: 'cover',
   },
   commentsBtn: {

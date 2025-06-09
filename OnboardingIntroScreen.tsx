@@ -240,7 +240,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E0E0E0',
     borderRadius: 12,
-    backgroundColor: 'white',
+    backgroundColor: '#f2f2f2',
     padding: 10,
     marginTop: 20,
     marginBottom: 50,

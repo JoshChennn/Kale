@@ -69,7 +69,7 @@ export default function CreateProfileFirstNameScreen({ navigation }: Props) {
       <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
         <View style={styles.container}>
           <View style={styles.content}>
-            <Text style={styles.title}>First, what's your first name?</Text>
+            <Text style={styles.title}>What's your first name?</Text>
             <TextInput
               style={styles.input}
               placeholder="First Name"
@@ -126,13 +126,14 @@ const styles = StyleSheet.create({
       },
       input: {
         color: '#F2F2F2',
-        fontSize: 40,
+        fontSize: 30,
         fontFamily: 'PatrickHand-Regular',
         textAlign: 'center',
         width: '90%',
         height: 50,
         borderBottomWidth: 2,
         borderBottomColor: '#F2F2F2',
+        letterSpacing: -0.5,
       },
       bottomContainer: {
         padding: 20,

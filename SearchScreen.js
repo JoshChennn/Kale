@@ -70,21 +70,33 @@ export default function SearchScreen({ navigation }) {
       const firstLetter = searchTerm.charAt(0);
       const usersRef = db.collection('users');
       const q = usersRef
-        .where('handle', '>=', `@${firstLetter}`)
-        .where('handle', '<=', `@${firstLetter}\uf8ff`)
+        .where('username', '>=', firstLetter)
+        .where('username', '<=', `${firstLetter}\uf8ff`)
         .limit(40); // Fetch a slightly larger batch for client-side filtering
 
       try {
         const querySnapshot = await q.get();
+        console.log('Search query:', {
+          firstLetter,
+          searchTerm,
+          querySize: querySnapshot.size
+        });
+        
         const initialResults = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        console.log('Initial results:', initialResults.length);
 
         // Step 2: Client-side filtering for a true "contains" search.
-        // This checks if the search term is in the user's name or handle.
+        // This checks if the search term is in the user's name or username.
         const filteredResults = initialResults.filter(user => {
             const name = user.name ? user.name.toLowerCase() : '';
-            const handle = user.handle ? user.handle.toLowerCase() : '';
-            return name.includes(searchTerm) || handle.includes(searchTerm);
+            const username = user.username ? user.username.toLowerCase() : '';
+            const matches = name.includes(searchTerm) || username.includes(searchTerm);
+            if (matches) {
+              console.log('Match found:', { name, username, searchTerm });
+            }
+            return matches;
         });
+        console.log('Filtered results:', filteredResults.length);
 
         // Step 3: Rank the results. Users you follow are prioritized and appear first.
         const rankedResults = filteredResults.sort((a, b) => {
@@ -161,13 +173,16 @@ export default function SearchScreen({ navigation }) {
                 style={styles.rowPressable}
                 onPress={() => navigateToProfile(user)}
             >
-                <Image source={{ uri: user.avatar }} style={styles.avatar} />
+                <Image 
+                    source={user.avatar ? { uri: user.avatar } : require('./assets/default-profile-photo.png')} 
+                    style={styles.avatar} 
+                />
                 <View style={styles.textWrap}>
                     <View style={styles.nameRow}>
-                        <Text style={styles.name}>{user.name}</Text>
+                        <Text style={styles.name}>{user.name || user.username}</Text>
                         {isFollowing && <MaterialIcons name="how-to-reg" size={16} color="#8BA637" style={styles.followingIcon} />}
                     </View>
-                    <Text style={styles.handle}>{user.handle}</Text>
+                    <Text style={styles.handle}>@{user.username}</Text>
                     {user.bio && !showDelete && (
                         <Text numberOfLines={1} style={styles.bio}>
                         {user.bio}
@@ -224,7 +239,10 @@ export default function SearchScreen({ navigation }) {
           <FlatList
             data={results}
             keyExtractor={(u) => u.id.toString()}
-            renderItem={({ item }) => <UserRow user={item} showDelete={false} />}
+            renderItem={({ item }) => {
+              console.log('Rendering item:', item);
+              return <UserRow user={item} showDelete={false} />;
+            }}
             ListEmptyComponent={<Empty text="No results found." />}
             keyboardDismissMode="on-drag"
             keyboardShouldPersistTaps="handled"

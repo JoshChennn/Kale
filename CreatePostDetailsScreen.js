@@ -35,7 +35,6 @@ export default function CreatePostDetailsScreen({ route, navigation }) {
           setCurrentUserData(docSnap.data());
         } else {
           console.warn("User document not found for posting user.");
-          // Fallback or error handling
           Alert.alert("Error", "Could not load your user profile to create a post.");
           navigation.goBack();
         }
@@ -45,8 +44,6 @@ export default function CreatePostDetailsScreen({ route, navigation }) {
 
   // Function to upload a single image to Firebase Storage
   const uploadImageAsync = async (uri) => {
-    // Why are we using XMLHttpRequest? See:
-    // https://github.com/expo/expo/issues/2402#issuecomment-443726662
     const blob = await new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.onload = function () {
@@ -71,8 +68,7 @@ export default function CreatePostDetailsScreen({ route, navigation }) {
       uploadTask.on(
         "state_changed",
         (snapshot) => {
-          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-          console.log("Upload is " + progress + "% done");
+          // Optional: handle progress updates
         },
         (error) => {
           console.error("Upload error:", error);
@@ -100,15 +96,15 @@ export default function CreatePostDetailsScreen({ route, navigation }) {
 
     setIsUploading(true);
     try {
-      // For now, let's assume only one photo is handled.
+      // For now, we only handle the first selected photo.
       const imageUriToUpload = photos[0];
       const uploadedImageURL = await uploadImageAsync(imageUriToUpload);
 
-      // Add post to Firestore
+      // Add post to Firestore with correct user data fields
       await addDoc(collection(db, "posts"), {
         userId: currentUser.uid,
-        userName: currentUserData.name,
-        userAvatar: currentUserData.avatar,
+        userName: currentUserData.displayName, // Corrected from .name
+        userAvatar: currentUserData.photoURL,   // Corrected from .avatar
         imageUri: uploadedImageURL,
         caption: caption.trim(),
         tags: tags.split(' ').filter(t => t.startsWith('@')),
@@ -119,9 +115,8 @@ export default function CreatePostDetailsScreen({ route, navigation }) {
       console.log('Post created successfully!');
       setIsUploading(false);
 
-      // Navigate back
-      const parentTabNavigator = navigation.getParent();
-      parentTabNavigator?.navigate('FeedStack', { screen: 'Feed' });
+      // Navigate back to the main feed and reset the create post stack
+      navigation.getParent()?.navigate('FeedStack', { screen: 'Feed' });
       navigation.reset({
         index: 0,
         routes: [{ name: 'SelectPhoto' }],
@@ -174,7 +169,7 @@ export default function CreatePostDetailsScreen({ route, navigation }) {
               editable={!isUploading}
             />
             <TextInput
-              placeholder="Tag people (e.g. @elmo @bigbird)"
+              placeholder="Tag people (e.g. @username)"
               placeholderTextColor="#aaa"
               value={tags}
               onChangeText={setTags}
@@ -189,7 +184,7 @@ export default function CreatePostDetailsScreen({ route, navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
+  container: { flex: 1, backgroundColor: '#f2f2f2' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -224,7 +219,9 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   inputCaption: {
-    backgroundColor: '#f2f2f2',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
     borderRadius: 8,
     paddingHorizontal: 15,
     paddingTop: 15,
@@ -237,7 +234,9 @@ const styles = StyleSheet.create({
     color: '#333',
   },
   inputTags: {
-    backgroundColor: '#f2f2f2',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
     borderRadius: 8,
     paddingHorizontal: 15,
     paddingVertical: 12,

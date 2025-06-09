@@ -179,7 +179,7 @@ export default function StoryViewer({ route, navigation }) {
         </ScrollView>
 
         <Pressable style={styles.close} onPress={() => navigation.goBack()}>
-          <MaterialIcons name="close" size={30} color="white" />
+          <MaterialIcons name="close" size={30} color="#f2f2f2" />
         </Pressable>
       </Pressable>
     </SafeAreaView>
@@ -222,7 +222,7 @@ const styles = StyleSheet.create({
     borderRadius: 1.5,
   },
   noStories: {
-    color: 'white',
+    color: '#f2f2f2',
     textAlign: 'center',
     marginTop: 20,
   },

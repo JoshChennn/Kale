@@ -39,6 +39,22 @@ export default function CreateProfileUsernameScreen({ navigation }: Props) {
   React.useEffect(() => {
     const handler = setTimeout(async () => {
       const formattedUsername = username.toLowerCase().trim();
+      
+      // Don't show any feedback if there's no input
+      if (!formattedUsername) {
+        setFeedback('');
+        setIsValid(false);
+        return;
+      }
+      
+      // Check for valid characters
+      const validUsernameRegex = /^[a-z0-9._]+$/;
+      if (!validUsernameRegex.test(formattedUsername)) {
+        setFeedback('⚠️ Username can only contain letters, numbers, periods, and underscores.');
+        setIsValid(false);
+        return;
+      }
+
       if (formattedUsername.length > 3) {
         setIsChecking(true);
         setFeedback('');
@@ -46,20 +62,20 @@ export default function CreateProfileUsernameScreen({ navigation }: Props) {
           const usersRef = db.collection('users');
           const querySnapshot = await usersRef.where('username', '==', formattedUsername).get();
           if (querySnapshot.empty) {
-            setFeedback('Username available!');
+            setFeedback('✅ Username available!');
             setIsValid(true);
           } else {
-            setFeedback('Username is already taken.');
+            setFeedback('⚠️ Username is already taken.');
             setIsValid(false);
           }
         } catch (error) {
-          setFeedback('Error checking username.');
+          setFeedback('⚠️ Error checking username.');
           setIsValid(false);
         } finally {
           setIsChecking(false);
         }
       } else {
-        setFeedback(formattedUsername.length > 0 ? 'Username must be at least 4 characters.' : '');
+        setFeedback('⚠️ Username must be at least 4 characters.');
         setIsValid(false);
       }
     }, 500); // 500ms debounce delay
@@ -107,22 +123,25 @@ export default function CreateProfileUsernameScreen({ navigation }: Props) {
       <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
         <View style={styles.container}>
           <View style={styles.content}>
-            <Text style={styles.title}>Pick a username</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="@username"
-              placeholderTextColor="#F2F2F250"
-              value={username}
-              onChangeText={setUsername}
-              autoCapitalize="none"
-              autoCorrect={false}
-              autoFocus
-            />
+            <Text style={styles.title}>Choose a username</Text>
+            <View style={styles.inputContainer}>
+              <Text style={styles.atSymbol}>@</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="username"
+                placeholderTextColor="#F2F2F250"
+                value={username}
+                onChangeText={setUsername}
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoFocus
+              />
+            </View>
             <View style={styles.feedbackContainer}>
                 {isChecking ? (
                     <ActivityIndicator size="small" color="#F2F2F2" />
                 ) : (
-                    <Text style={[styles.feedbackText, { color: isValid ? '#D2FFC0' : '#FFDDC0'}]}>{feedback}</Text>
+                    <Text style={[styles.feedbackText, { color: '#F2F2F2' }]}>{feedback}</Text>
                 )}
             </View>
           </View>
@@ -169,25 +188,44 @@ const styles = StyleSheet.create({
         marginBottom: 40,
         paddingHorizontal: 20,
       },
-      input: {
-        color: '#F2F2F2',
-        fontSize: 40,
-        fontFamily: 'PatrickHand-Regular',
-        textAlign: 'center',
+      inputContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
         width: '90%',
-        height: 50,
         borderBottomWidth: 2,
         borderBottomColor: '#F2F2F2',
+        justifyContent: 'center',
+      },
+      atSymbol: {
+        color: '#F2F2F2',
+        fontSize: 30,
+        fontFamily: 'PatrickHand-Regular',
+        width: 30,
+        textAlign: 'center',
+      },
+      input: {
+        color: '#F2F2F2',
+        fontSize: 30,
+        fontFamily: 'PatrickHand-Regular',
+        textAlign: 'center',
+        flex: 1,
+        height: 50,
+        marginLeft: -30, // Offset by the @ symbol width to center the text
+        letterSpacing: -0.5,
       },
       feedbackContainer: {
-        height: 30,
+        minHeight: 30,
         marginTop: 15,
         justifyContent: 'center',
         alignItems: 'center',
+        paddingHorizontal: 20,
+        width: '100%',
       },
       feedbackText: {
         fontFamily: 'PatrickHand-Regular',
         fontSize: 18,
+        textAlign: 'center',
+        flexWrap: 'wrap',
       },
       bottomContainer: {
         padding: 20,

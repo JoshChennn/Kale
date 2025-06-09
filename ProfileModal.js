@@ -112,8 +112,10 @@ export default function ProfileModal({ navigation, route }) {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.profileHeader}>
-            {/* FIX: Use photoURL instead of avatar */}
-            <Image source={{ uri: user.photoURL }} style={styles.profileImage} />
+            <Image 
+              source={user.photoURL ? { uri: user.photoURL } : require('./assets/default-profile-photo.png')} 
+              style={styles.profileImage} 
+            />
             <View style={styles.row}>
               {/* FIX: Use displayName instead of name */}
               <Text style={styles.name}>{user.displayName}</Text>
@@ -279,7 +281,7 @@ const styles = StyleSheet.create({
   addFriendText: {
     fontFamily: 'PatrickHand-Regular',
     fontSize: 16,
-    color: 'white',
+    color: '#f2f2f2',
   },
   removeFriendButton: {
     backgroundColor: '#e6e6e6',
@@ -306,7 +308,7 @@ const styles = StyleSheet.create({
   addBestieText: {
     fontFamily: 'PatrickHand-Regular',
     fontSize: 16,
-    color: 'white',
+    color: '#f2f2f2',
   },
   removeBestieButton: {
     backgroundColor: '#e6e6e6',

@@ -183,7 +183,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   commentItem: {
-    backgroundColor: '#fff',
+    backgroundColor: '#f2f2f2',
     padding: 10,
     borderRadius: 8,
     marginBottom: 15,

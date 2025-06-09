@@ -112,7 +112,7 @@ export default function PhoneNumberScreen({ navigation }: Props) {
           <FirebaseRecaptchaVerifierModal
             ref={recaptchaVerifier}
             firebaseConfig={firebase.app().options}
-            title="I'm not a robot (I promise)"
+            title="I'm not a robot (Loading...)"
             cancelLabel="Close"
           />
 

@@ -250,7 +250,7 @@ const styles = StyleSheet.create({
   addFriendText: {
     fontFamily: 'PatrickHand-Regular',
     fontSize: 16,
-    color: 'white',
+    color: '#f2f2f2',
   },
 
   removeFriendButton: {
@@ -281,7 +281,7 @@ const styles = StyleSheet.create({
   addBestieText: {
     fontFamily: 'PatrickHand-Regular',
     fontSize: 16,
-    color: 'white',
+    color: '#f2f2f2',
   },
 
   removeBestieButton: {

@@ -1,15 +1,17 @@
 import * as React from 'react';
-import { View, Text, Button, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator } from 'react-native';
 import { useFonts } from 'expo-font';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import {
   createStackNavigator,
   CardStyleInterpolators,
+  StackScreenProps,
 } from '@react-navigation/stack';
 import { MaterialIcons } from '@expo/vector-icons';
 import { auth, db } from './firebaseConfig';
 import { User as FirebaseUser } from 'firebase/auth';
+import { onSnapshot, doc } from 'firebase/firestore';
 
 import FeedScreen from './FeedScreen';
 import ProfileScreen from './ProfileScreen';
@@ -96,6 +98,9 @@ function MainTabs({ currentUser }: { currentUser: FirebaseUser }) {
           backgroundColor: '#F2F2F2',
           alignItems: 'center',
           paddingTop: 8,
+          borderTopWidth: 0,
+          elevation: 0,
+          shadowOpacity: 0,
         },
         tabBarShowLabel: false,
         tabBarIcon: ({ focused }) => {
@@ -110,7 +115,7 @@ function MainTabs({ currentUser }: { currentUser: FirebaseUser }) {
           return (
             <MaterialIcons
               name={iconName}
-              size={36}
+              size={30}
               color={focused ? '#8BA637' : '#B9B9B9'}
             />
           );
@@ -152,9 +157,18 @@ function AuthStackScreen() {
 }
 
 // Updated stack for the onboarding process
-function OnboardingStackScreen({ onOnboardingComplete }: { onOnboardingComplete: () => void }) {
+function OnboardingStackScreen({ 
+  initialRouteName,
+  setAuthStatus 
+}: { 
+  initialRouteName: keyof OnboardingStackParamList;
+  setAuthStatus: (status: 'LOADING' | 'LOGGED_OUT' | 'ONBOARDING' | 'LOGGED_IN') => void;
+}) {
     return (
-      <OnboardingStack.Navigator screenOptions={{ headerShown: false }}>
+      <OnboardingStack.Navigator
+        initialRouteName={initialRouteName}
+        screenOptions={{ headerShown: false }}
+      >
         <OnboardingStack.Screen
           name="OnboardingIntro"
           component={OnboardingIntroScreen}
@@ -179,76 +193,96 @@ function OnboardingStackScreen({ onOnboardingComplete }: { onOnboardingComplete:
           name="CreateProfilePhoto"
           component={CreateProfilePhotoScreen}
         />
-        <OnboardingStack.Screen name="AddFriends">
-          {(props) => (
-            <AddFriendsScreen
-              {...props}
-              onOnboardingComplete={onOnboardingComplete}
-            />
-          )}
-        </OnboardingStack.Screen>
+        <OnboardingStack.Screen
+          name="AddFriends"
+          component={(props: StackScreenProps<OnboardingStackParamList, 'AddFriends'>) => 
+            <AddFriendsScreen {...props} onOnboardingComplete={() => setAuthStatus('LOGGED_IN')} />
+          }
+        />
       </OnboardingStack.Navigator>
     );
-  }
+}
 
 export default function App() {
   const [fontsLoaded] = useFonts({
     'PatrickHand-Regular': require('./assets/fonts/PatrickHand-Regular.ttf'),
   });
+
+  const [authStatus, setAuthStatus] = React.useState<'LOADING' | 'LOGGED_OUT' | 'ONBOARDING' | 'LOGGED_IN'>('LOADING');
   const [currentUser, setCurrentUser] = React.useState<FirebaseUser | null>(null);
-  const [loading, setLoading] = React.useState(true);
-  const [isProfileComplete, setIsProfileComplete] = React.useState(false);
+  const [initialOnboardingRoute, setInitialOnboardingRoute] = React.useState<keyof OnboardingStackParamList>('OnboardingIntro');
 
   React.useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged(async (user) => {
-      setLoading(true);
-      if (user) {
-        const userDocRef = db.collection('users').doc(user.uid);
-        const docSnap = await userDocRef.get();
+    let firestoreUnsubscribe: () => void = () => {};
 
-        setCurrentUser(user as FirebaseUser);
-
-        // A profile is considered "complete" for navigation purposes if the user document exists.
-        // The OnboardingStack guides them through filling it out.
-        // The `onOnboardingComplete` callback passed to the stack is what ultimately
-        // flips the `isProfileComplete` state to true, showing the main app.
-        if (docSnap.exists) {
-            // Check for a specific field that indicates profile setup is done, e.g., 'username'.
-            // For now, we rely on the `onOnboardingComplete` callback from AddFriendsScreen.
-            // Let's keep the logic simple: if doc exists, show onboarding.
-            // `isProfileComplete` will be toggled manually at the end of the flow.
-            // This prevents showing the main app prematurely.
-            setIsProfileComplete(false);
-        } else {
-            setIsProfileComplete(false);
-        }
-      } else {
-        setCurrentUser(null);
-        setIsProfileComplete(false);
+    // This single listener will manage all state transitions, preventing race conditions.
+    const authUnsubscribe = auth.onAuthStateChanged(user => {
+      // Unsubscribe from any previous Firestore listener when auth state changes.
+      if (firestoreUnsubscribe) {
+        firestoreUnsubscribe();
       }
-      setLoading(false);
+      
+      if (user) {
+        setCurrentUser(user as FirebaseUser);
+        const userDocRef = doc(db, 'users', user.uid);
+        
+        // Listen to the user's profile document in Firestore.
+        firestoreUnsubscribe = onSnapshot(userDocRef, (docSnap) => {
+          if (docSnap.exists()) {
+            const userData = docSnap.data();
+            if (userData.onboardingCompleted) {
+              setAuthStatus('LOGGED_IN');
+            } else {
+              // Onboarding is in progress, figure out where to resume.
+              if (!userData.firstName) {
+                setInitialOnboardingRoute('CreateProfileFirstName');
+              } else if (!userData.displayName) {
+                setInitialOnboardingRoute('CreateProfileLastName');
+              } else if (!userData.username) {
+                setInitialOnboardingRoute('CreateProfileUsername');
+              } else if (!userData.photoURL) { // After username, check for photo
+                setInitialOnboardingRoute('CreateProfilePhoto');
+              } else { // After photo, it's add friends
+                setInitialOnboardingRoute('AddFriends');
+              }
+              setAuthStatus('ONBOARDING');
+            }
+          } else {
+            // User is authenticated but has no Firestore document yet.
+            // This is the state right after phone verification.
+            setInitialOnboardingRoute('OnboardingIntro');
+            setAuthStatus('ONBOARDING');
+          }
+        });
+      } else {
+        // User is not authenticated.
+        setCurrentUser(null);
+        setAuthStatus('LOGGED_OUT');
+      }
     });
 
-    return unsubscribe;
-  }, []);
+    // Cleanup on component unmount
+    return () => {
+      authUnsubscribe();
+      if (firestoreUnsubscribe) {
+        firestoreUnsubscribe();
+      }
+    };
+  }, []); // Empty dependency array ensures this runs only once on mount.
 
-  if (!fontsLoaded || loading) {
+  if (!fontsLoaded || authStatus === 'LOADING') {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F2F2F2' }}>
         <ActivityIndicator size="large" color="#8BA637" />
       </View>
     );
   }
-  
-  // The logic for displaying screens is now:
-  // 1. No user? Show AuthStack.
-  // 2. User exists but profile isn't "complete" (flag set by onboarding flow)? Show OnboardingStack.
-  // 3. User exists AND profile is complete? Show RootStack (main app).
+
   return (
     <NavigationContainer>
-      {!currentUser ? (
-        <AuthStackScreen />
-      ) : isProfileComplete ? (
+      {authStatus === 'LOGGED_OUT' && <AuthStackScreen />}
+      {authStatus === 'ONBOARDING' && <OnboardingStackScreen initialRouteName={initialOnboardingRoute} setAuthStatus={setAuthStatus} />}
+      {authStatus === 'LOGGED_IN' && currentUser && (
         <RootStack.Navigator screenOptions={{ headerShown: false }}>
           <RootStack.Screen name="MainTabs">
             {props => <MainTabs {...props} currentUser={currentUser} />}
@@ -269,8 +303,6 @@ export default function App() {
             options={{ presentation: 'modal', headerShown: false }}
           />
         </RootStack.Navigator>
-      ) : (
-        <OnboardingStackScreen onOnboardingComplete={() => setIsProfileComplete(true)} />
       )}
     </NavigationContainer>
   );
