@@ -7,6 +7,7 @@ import {
   Alert,
   ActivityIndicator,
   SectionList,
+  Animated,
 } from 'react-native';
 import { StackScreenProps } from '@react-navigation/stack';
 import * as Contacts from 'expo-contacts';
@@ -47,19 +48,49 @@ interface NonKaleContact {
 
 const MINIMUM_FOLLOW_INVITE = 7;
 
-// Array of randomized SMS messages
-const inviteMessages = [
-  "Heyy, can you add me on Kale so I can delete instagram once and for all 😂 [Your App Link Here]",
-  "Thought you might like this, they say it's instagram without the cocaine LOL [Your App Link Here]",
-  "I requested to follow you on Kale :) [Your App Link Here]",
-  "Hey, wanna switch to Kale with me [Your App Link Here]"
-];
+// Single personalized invite message
+const getInviteMessage = (firstName: string) => 
+  `${firstName} requested to follow you on Kale. Accept it: [Your App Link Here]`;
 
 export default function AddFriendsScreen({ onOnboardingComplete }: Props) {
   const [loading, setLoading] = React.useState(true);
   const [sections, setSections] = React.useState<any[]>([]);
   const [followedOrInvited, setFollowedOrInvited] = React.useState(new Set());
+  const [waitingContacts, setWaitingContacts] = React.useState(new Set());
+  const [userFirstName, setUserFirstName] = React.useState('');
   const currentUser = auth.currentUser as FirebaseUser;
+  const [ellipsisState, setEllipsisState] = React.useState(0);
+
+  // Animation for ellipsis
+  React.useEffect(() => {
+    let interval: NodeJS.Timeout;
+    
+    if (waitingContacts.size > 0) {
+      interval = setInterval(() => {
+        setEllipsisState(prev => (prev + 1) % 4);
+      }, 500);
+    }
+
+    return () => {
+      if (interval) {
+        clearInterval(interval);
+      }
+    };
+  }, [waitingContacts]);
+
+  React.useEffect(() => {
+    const fetchUserData = async () => {
+      if (!currentUser) return;
+      
+      const userDoc = await db.collection('users').doc(currentUser.uid).get();
+      if (userDoc.exists) {
+        const userData = userDoc.data();
+        setUserFirstName(userData?.firstName || '');
+      }
+    };
+    
+    fetchUserData();
+  }, [currentUser]);
 
   React.useEffect(() => {
     const fetchContactsAndUsers = async () => {
@@ -141,27 +172,71 @@ export default function AddFriendsScreen({ onOnboardingComplete }: Props) {
   }, [currentUser]);
 
   const handleFollow = async (userToFollow: KaleUser) => {
-    if (followedOrInvited.has(userToFollow.uid)) return;
-    
-    // NOTE: In a real app, you would add proper error handling here.
-    await db.collection('following').doc(currentUser.uid)
-        .collection('userFollowing').doc(userToFollow.uid).set({});
-    
-    setFollowedOrInvited(prev => new Set(prev).add(userToFollow.uid));
+    // Prevent multiple clicks or following if the user is not logged in.
+    if (followedOrInvited.has(userToFollow.uid) || !currentUser) {
+      return;
+    }
+
+    // A batch write ensures that both database operations (creating the 'following'
+    // and 'follower' records) succeed or fail together. This keeps the data consistent.
+    const batch = db.batch();
+
+    // 1. Add `userToFollow` to the current user's "following" list.
+    const followingRef = db.collection('following').doc(currentUser.uid)
+      .collection('userFollowing').doc(userToFollow.uid);
+    batch.set(followingRef, {});
+
+    // 2. Add the current user to `userToFollow`'s "followers" list.
+    // This is the missing piece that completes the relationship.
+    const followerRef = db.collection('followers').doc(userToFollow.uid)
+      .collection('userFollowers').doc(currentUser.uid);
+    batch.set(followerRef, {});
+      
+    try {
+      // Optimistically update the UI first for a responsive user experience.
+      // The button will immediately change to "Following".
+      setFollowedOrInvited(prev => new Set(prev).add(userToFollow.uid));
+      
+      // Commit the batch write to Firestore.
+      await batch.commit();
+
+    } catch (error) {
+      console.error("Error following user: ", error);
+      
+      // If the database write fails, revert the UI change.
+      setFollowedOrInvited(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(userToFollow.uid);
+        return newSet;
+      });
+
+      // Inform the user that the action failed.
+      Alert.alert('Error', 'Could not follow user. Please try again.');
+    }
   };
 
   const handleInvite = async (contactToInvite: NonKaleContact) => {
     if (followedOrInvited.has(contactToInvite.id)) return;
     
-    // Shuffle the messages array
-    const shuffledMessages = [...inviteMessages].sort(() => Math.random() - 0.5);
-    const randomMessage = shuffledMessages[0];
+    // Toggle waiting state
+    if (waitingContacts.has(contactToInvite.id)) {
+      setWaitingContacts(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(contactToInvite.id);
+        return newSet;
+      });
+      return;
+    }
+
+    setWaitingContacts(prev => new Set(prev).add(contactToInvite.id));
+    
+    const inviteMessage = getInviteMessage(userFirstName);
 
     const isAvailable = await SMS.isAvailableAsync();
     if (isAvailable) {
         const { result } = await SMS.sendSMSAsync(
             [contactToInvite.phoneNumber],
-            randomMessage
+            inviteMessage
         );
         if(result === 'sent' || result === 'unknown') {
             setFollowedOrInvited(prev => new Set(prev).add(contactToInvite.id));
@@ -169,6 +244,13 @@ export default function AddFriendsScreen({ onOnboardingComplete }: Props) {
     } else {
       Alert.alert('SMS Not Available', 'Could not open the SMS app on your device.');
     }
+    
+    // Remove from waiting state after SMS is sent
+    setWaitingContacts(prev => {
+      const newSet = new Set(prev);
+      newSet.delete(contactToInvite.id);
+      return newSet;
+    });
   };
   
   const count = followedOrInvited.size;
@@ -178,9 +260,16 @@ export default function AddFriendsScreen({ onOnboardingComplete }: Props) {
     const isKaleUser = section.title === 'On Kale';
     const id = isKaleUser ? item.uid : item.id;
     const isDone = followedOrInvited.has(id);
-    const buttonText = isKaleUser
+    const isWaiting = waitingContacts.has(id);
+    
+    let buttonText = isKaleUser
       ? (isDone ? 'Following' : 'Follow')
-      : (isDone ? 'Invited' : 'Invite + Follow');
+      : (isDone ? 'Requested' : 'Invite + Follow');
+
+    if (isWaiting) {
+      const dots = '.'.repeat(ellipsisState);
+      buttonText = `Waiting${dots}`;
+    }
 
     return (
       <View style={styles.contactRow}>
@@ -190,10 +279,18 @@ export default function AddFriendsScreen({ onOnboardingComplete }: Props) {
         </View>
         <Pressable
             onPress={() => isKaleUser ? handleFollow(item) : handleInvite(item)}
-            style={[styles.actionButton, isDone && styles.actionButtonDone]}
+            style={[
+                styles.actionButton, 
+                isDone && styles.actionButtonDone,
+                isWaiting && styles.actionButtonWaiting
+            ]}
             disabled={isDone}
         >
-            <Text style={[styles.actionButtonText, isDone && styles.actionButtonTextDone]}>
+            <Text style={[
+                styles.actionButtonText, 
+                isDone && styles.actionButtonTextDone,
+                isWaiting && styles.actionButtonTextWaiting
+            ]}>
                 {buttonText}
             </Text>
         </Pressable>
@@ -305,23 +402,29 @@ const styles = StyleSheet.create({
         color: '#888',
     },
     actionButton: {
-        backgroundColor: 'rgba(139, 166, 55, 0.1)',
-        borderRadius: 20,
+        backgroundColor: '#8BA637',
+        borderRadius: 5,
         paddingHorizontal: 20,
         paddingVertical: 8,
         minWidth: 90,
         alignItems: 'center'
     },
     actionButtonDone: {
-        backgroundColor: '#8BA637',
+        backgroundColor: '#e6e6e6',
     },
     actionButtonText: {
-        color: '#8BA637',
+        color: '#F2F2F2',
         fontSize: 18,
         fontFamily: 'PatrickHand-Regular',
     },
     actionButtonTextDone: {
-        color: '#F2F2F2',
+        color: '#53544D',
+    },
+    actionButtonWaiting: {
+        backgroundColor: '#e6e6e6',
+    },
+    actionButtonTextWaiting: {
+        color: '#53544D',
     },
     bottomContainer: {
         padding: 40,
