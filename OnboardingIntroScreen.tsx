@@ -8,6 +8,8 @@ import {
   SafeAreaView,
   NativeSyntheticEvent,
   NativeScrollEvent,
+  Animated,
+  Dimensions,
 } from 'react-native';
 import { StackScreenProps } from '@react-navigation/stack';
 
@@ -46,6 +48,27 @@ const FakeFeedScreenshot = () => (
 
 export default function OnboardingIntroScreen({ navigation }: Props) {
   const [isScrolledToEnd, setIsScrolledToEnd] = React.useState(false);
+  const arrowAnim = React.useRef(new Animated.Value(0)).current;
+  const { height: screenHeight } = Dimensions.get('window');
+
+  React.useEffect(() => {
+    const animateArrow = () => {
+      Animated.sequence([
+        Animated.timing(arrowAnim, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(arrowAnim, {
+          toValue: 0,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+      ]).start(() => animateArrow());
+    };
+
+    animateArrow();
+  }, []);
 
   // Checks if the user has scrolled to the bottom of the content
   const isCloseToBottom = ({
@@ -69,19 +92,40 @@ export default function OnboardingIntroScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView
-        contentContainerStyle={styles.scrollViewContent}
+        contentContainerStyle={[
+          styles.scrollViewContent,
+          { minHeight: screenHeight * 1.5 } // Ensure content extends well below fold
+        ]}
         onScroll={handleScroll}
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.logo}>KALE</Text>
-        <Text style={styles.paragraph}>
-          Social media is <Text style={styles.highlightedText}>designed</Text> to be addicting.
-        </Text>
-        <Text style={styles.paragraph}>
-          Likes. Streaks. Vanishing stories.{' '}
-          <Text style={styles.highlightedText}>Endless scrolling.</Text>
-        </Text>
+        <View style={[styles.initialContent, { height: screenHeight }]}>
+          <Text style={styles.heading}>
+            Social media is <Text style={styles.highlightedText}>designed</Text> to be addicting. 🚬
+          </Text>
+          <Text style={styles.paragraph}>
+            Likes. Streaks. Vanishing stories.{' '}
+            <Text style={styles.highlightedText}>Endless scrolling</Text>.
+          </Text>
+          <View style={styles.scrollContainer}>
+            <Animated.Text 
+              style={[
+                styles.arrow,
+                {
+                  transform: [{
+                    translateY: arrowAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0, 10]
+                    })
+                  }]
+                }
+              ]}
+            >
+              ↓
+            </Animated.Text>
+          </View>
+        </View>
         <Text style={styles.paragraph}>
           Kale is Instagram without the{' '}
           <Text style={styles.highlightedText}>cocaine.</Text>
@@ -89,35 +133,28 @@ export default function OnboardingIntroScreen({ navigation }: Props) {
 
         <FakeFeedScreenshot />
 
-        <Text style={styles.paragraph}>No dopamine. Just friends.</Text>
+        <Text style={styles.paragraph}>No reels. No doomscrolling. Just friends.</Text>
+        <Text style={styles.paragraph}>🚭 🚭 🚭</Text>
         <Text style={styles.paragraph}>
-          And here's the best part: when you get to the end of your feed, it
-          just stops. 🤯 No doomscrolling here.
-        </Text>
-        <Text style={styles.paragraph}>
-          Kale is the first social media in the world that's designed to be{' '}
+          This is the first social app in the world that's designed to be{' '}
           <Text style={styles.highlightedText}>boring.</Text>
         </Text>
-        <Text style={styles.paragraphSmall}>
-          On the next page, you'll need to enable contacts so we can suggest
-          friends and add at least 7 to start using the app (because there's nothing
-          else to see here besides friends).
-        </Text>
+        <Text style={styles.paragraph}>🌱 🌿 🍃</Text>
         <Text style={styles.paragraph}>Sound good?</Text>
+        <View style={styles.bottomContainer}>
+          <Pressable
+            onPress={() => navigation.navigate('ConnectContacts')}
+            disabled={!isScrolledToEnd}
+            style={({ pressed }) => [
+              styles.button,
+              !isScrolledToEnd && styles.buttonDisabled,
+              pressed && { opacity: 0.8 },
+            ]}
+          >
+            <Text style={styles.buttonText}>Let's go!</Text>
+          </Pressable>
+        </View>
       </ScrollView>
-      <View style={styles.bottomContainer}>
-        <Pressable
-          onPress={() => navigation.navigate('ConnectContacts')}
-          disabled={!isScrolledToEnd}
-          style={({ pressed }) => [
-            styles.button,
-            !isScrolledToEnd && styles.buttonDisabled,
-            pressed && { opacity: 0.8 },
-          ]}
-        >
-          <Text style={styles.buttonText}>Let's go!</Text>
-        </Pressable>
-      </View>
     </SafeAreaView>
   );
 }
@@ -128,15 +165,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#F2F2F2',
   },
   scrollViewContent: {
-    padding: 40,
-    paddingBottom: 150, // Make space for the fixed button
+    paddingHorizontal: 40,
+    paddingBottom: 40,
   },
-  logo: {
-    fontSize: 60,
+  initialContent: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  heading: {
+    fontSize: 50,
     fontFamily: 'PatrickHand-Regular',
     color: '#8BA637',
     textAlign: 'center',
-    marginBottom: 40,
+    lineHeight: 56,
+    marginTop: 60,
+    marginBottom: 120,
   },
   paragraph: {
     fontSize: 32,
@@ -157,14 +200,25 @@ const styles = StyleSheet.create({
   highlightedText: {
     color: '#4F6A56',
   },
+  scrollContainer: {
+    alignItems: 'center',
+    marginBottom: 30,
+    marginTop: 100,
+  },
+  scrollText: {
+    fontSize: 24,
+    fontFamily: 'PatrickHand-Regular',
+    color: '#B9B9B9',
+    marginBottom: 5,
+  },
+  arrow: {
+    fontSize: 40,
+    color: '#B9B9B9',
+    textAlign: 'center',
+  },
   bottomContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: 40,
-    paddingTop: 20,
-    backgroundColor: '#F2F2F2',
+    marginTop: 40,
+    marginBottom: 40,
   },
   button: {
     backgroundColor: '#8BA637',
@@ -178,7 +232,7 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     color: '#F2F2F2',
-    fontSize: 20,
+    fontSize: 22,
     fontFamily: 'PatrickHand-Regular',
   },
   // Fake Screenshot Styles
@@ -188,7 +242,8 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: 'white',
     padding: 10,
-    marginVertical: 20,
+    marginTop: 20,
+    marginBottom: 50,
     marginHorizontal: -20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },

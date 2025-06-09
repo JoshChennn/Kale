@@ -16,8 +16,8 @@ import { User as FirebaseUser } from 'firebase/auth';
 // This param list should match the one for its parent navigator in App.tsx
 type OnboardingStackParamList = {
   OnboardingIntro: undefined;
-  OnboardingQuestion: undefined;
   ConnectContacts: undefined;
+  CreateProfileFirstName: undefined;
   AddFriends: undefined;
 };
 
@@ -26,11 +26,9 @@ type Props = StackScreenProps<OnboardingStackParamList, 'ConnectContacts'>;
 export default function ConnectContactsScreen({ navigation }: Props) {
   const [loading, setLoading] = React.useState(false);
 
-  // This function now handles BOTH creating and updating the user document.
-  const handlePermissionChoice = async (enabled: boolean) => {
-    setLoading(true);
+  // This function creates the user document AFTER permission is granted.
+  const createUserProfileAndProceed = async () => {
     const currentUser = auth.currentUser;
-
     if (!currentUser) {
       Alert.alert('Error', 'Authentication session not found.');
       setLoading(false);
@@ -47,36 +45,39 @@ export default function ConnectContactsScreen({ navigation }: Props) {
             uid: currentUser.uid,
             phoneNumber: currentUser.phoneNumber,
             createdAt: new Date(),
-            contactsEnabled: enabled,
+            contactsEnabled: true, // Permission is required, so this is always true
             // Add other default fields for a new profile
             onboardingReason: 'Skipped Intro Question', // Placeholder
             displayName: '',
             username: '',
             bio: '',
             photoURL: '',
+            firstName: '',
+            lastName: '',
           },
-          { merge: true }
-        ); // Use merge:true to avoid overwriting if doc somehow exists
+          { merge: true } // Use merge:true to avoid overwriting
+        );
 
-      navigation.navigate('AddFriends');
+      navigation.navigate('CreateProfileFirstName');
     } catch (error) {
-      console.error('Failed to update user profile:', error);
-      Alert.alert('Error', 'Could not save your choice. Please try again.');
+      console.error('Failed to create user profile:', error);
+      Alert.alert('Error', 'Could not save your profile. Please try again.');
       setLoading(false);
     }
   };
 
-  const handleEnableContacts = async () => {
-    setLoading(true);
+  const handleAllowPress = async () => {
+    // This triggers the actual system permissions dialog
     const { status } = await Contacts.requestPermissionsAsync();
 
     if (status === 'granted') {
-      await handlePermissionChoice(true);
+      setLoading(true);
+      await createUserProfileAndProceed();
     } else {
-      setLoading(false); // Stop loading before showing Alert
+      // User denied the permission in the system dialog
       Alert.alert(
-        'Permission Denied',
-        'Kale works best with friends. You can enable contacts later in your phone settings to find people you know.',
+        'Permission Required',
+        'Kale is purely a friends app and requires contacts to find people you know. Please enable contacts in your phone settings to continue.',
         [
           { text: 'Okay', style: 'cancel' },
           {
@@ -88,50 +89,54 @@ export default function ConnectContactsScreen({ navigation }: Props) {
     }
   };
 
-  const handleSkip = async () => {
-    await handlePermissionChoice(false);
+  const handleDontAllowPress = () => {
+    Alert.alert(
+      'Contacts Are Required',
+      'To find your friends, Kale needs access to your contacts. This is a core feature of the app.',
+      [{ text: 'I Understand', style: 'default' }]
+    );
   };
 
   return (
     <View style={styles.container}>
-      <View style={styles.content}>
-        <Text style={styles.quote}>
-          Kale is a <Text style={styles.highlightedText}>friends</Text> app.
-        </Text>
-      </View>
+      <Text style={styles.quote}>
+        Kale needs to suggest friends.
+      </Text>
 
-      <View style={styles.bottomContainer}>
+      {/* This view covers the screen to center the mock notification */}
+      <View style={styles.mockNotificationOverlay}>
         {loading ? (
           <ActivityIndicator size="large" color="#8BA637" />
         ) : (
-          <>
-            <Pressable
-              onPress={handleEnableContacts}
-              style={({ pressed }) => [
-                styles.optionButton,
-                pressed && { opacity: 0.8 },
-              ]}
-            >
-              <Text style={styles.optionButtonText}>📒 Enable contacts</Text>
-            </Pressable>
-            <Pressable
-              onPress={handleSkip}
-              style={({ pressed }) => [
-                styles.secondaryOptionButton,
-                pressed && { opacity: 0.8 },
-              ]}
-            >
-              <Text style={styles.secondaryOptionButtonText}>Skip for now</Text>
-            </Pressable>
-          </>
+          <View style={styles.mockNotificationContainer}>
+            <Text style={styles.mockNotificationTitle}>
+              "Kale" Would Like to Access Your Contacts
+            </Text>
+            <Text style={styles.mockNotificationBody}>
+              Kale uses your contacts to help you find and connect with
+              friends. Your contacts are never shared or spammed.
+            </Text>
+            <View style={styles.mockNotificationActions}>
+              <Pressable
+                style={styles.mockNotificationButton}
+                onPress={handleAllowPress}
+              >
+                <Text style={styles.mockNotificationButtonText}>
+                  Allow
+                </Text>
+              </Pressable>
+            </View>
+          </View>
         )}
       </View>
-      <View style={styles.privacyContainer}>
-        <Text style={styles.lockSymbol}>🔒</Text>
-        <Text style={styles.privacyText}>
-          Kale cares about your privacy and will NEVER text or spam your
-          contacts. Period.
+      <View style={styles.instructions}>
+        <Text style={styles.instructionText}>
+          1. Select <Text style={styles.boldText}>*Continue*</Text>{'\n'}
+          2. Select <Text style={styles.boldText}>*Allow Full Access*</Text>
         </Text>
+      </View>
+      <View style={styles.privacyNote}>
+        <Text style={styles.privacyNoteText}>🔒 Kale cares about your privacy and will NEVER text or spam your contacts. Period.</Text>
       </View>
     </View>
   );
@@ -141,70 +146,112 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F2F2F2',
-    padding: 40,
-  },
-  content: {
-    flex: 1,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     alignItems: 'center',
+    paddingTop: 120,
+    paddingHorizontal: 40,
   },
   quote: {
-    fontSize: 60,
+    fontSize: 50,
     fontFamily: 'PatrickHand-Regular',
     color: '#8BA637',
     textAlign: 'center',
-    marginBottom: -20,
-    lineHeight: 66,
-  },
-  bottomContainer: {
-    paddingBottom: 40,
-    marginBottom: 100,
-  },
-  optionButton: {
-    backgroundColor: '#8BA637',
-    borderRadius: 25,
-    height: 48,
-    justifyContent: 'center',
-    marginBottom: 15,
-  },
-  secondaryOptionButton: {
-    backgroundColor: 'transparent',
-    borderRadius: 25,
-    height: 48,
-    justifyContent: 'center',
-    marginBottom: 15,
-  },
-  optionButtonText: {
-    color: '#F2F2F2',
-    fontSize: 20,
-    fontFamily: 'PatrickHand-Regular',
-    textAlign: 'center',
-  },
-  secondaryOptionButtonText: {
-    color: '#8BA637',
-    fontSize: 20,
-    fontFamily: 'PatrickHand-Regular',
-    textAlign: 'center',
-  },
-  privacyContainer: {
-    position: 'absolute',
-    bottom: 60,
-    left: 40,
-    right: 40,
-    alignItems: 'center',
-  },
-  lockSymbol: {
-    fontSize: 24,
-    marginBottom: 8,
-  },
-  privacyText: {
-    color: '#8BA637',
-    fontSize: 16,
-    fontFamily: 'PatrickHand-Regular',
-    textAlign: 'center',
-    lineHeight: 22,
+    lineHeight: 56,
   },
   highlightedText: {
     color: '#4F6A56',
+  },
+  // Mock Notification Styles
+  mockNotificationOverlay: {
+    // This makes the view take up the whole screen and center its content
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  mockNotificationContainer: {
+    width: '85%',
+    maxWidth: 300,
+    backgroundColor: 'rgba(242, 242, 242, 0.95)', // Slightly transparent bg for the "glass" effect
+    borderRadius: 14,
+    alignItems: 'center',
+    paddingTop: 20,
+    // iOS-style shadow
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  mockNotificationTitle: {
+    fontFamily: 'PatrickHand-Regular',
+    fontSize: 20,
+    color: '#000',
+    fontWeight: '700', // Making it bold-like
+    textAlign: 'center',
+    marginBottom: 6,
+    paddingHorizontal: 16,
+  },
+  mockNotificationBody: {
+    fontFamily: 'PatrickHand-Regular',
+    fontSize: 16,
+    color: '#000',
+    textAlign: 'center',
+    marginBottom: 20,
+    paddingHorizontal: 16,
+    lineHeight: 22,
+  },
+  mockNotificationActions: {
+    width: '100%',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(60, 60, 67, 0.29)', // iOS-like separator color
+  },
+  mockNotificationButton: {
+    paddingVertical: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  mockNotificationButtonText: {
+    fontFamily: 'PatrickHand-Regular',
+    fontSize: 20,
+    color: '#007AFF', // Standard iOS blue for action buttons
+    fontWeight: '700', // Making it bold since it's the only action
+  },
+  mockNotificationButtonTextBold: {
+    fontWeight: '700',
+  },
+  instructions: {
+    position: 'absolute',
+    bottom: 120,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    paddingHorizontal: 40,
+  },
+  instructionText: {
+    fontFamily: 'PatrickHand-Regular',
+    fontSize: 18,
+    color: '#8BA637',
+    textAlign: 'center',
+    lineHeight: 28,
+  },
+  boldText: {
+    fontWeight: '700',
+  },
+  privacyNote: {
+    position: 'absolute',
+    bottom: 60,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    paddingHorizontal: 40,
+  },
+  privacyNoteText: {
+    fontFamily: 'PatrickHand-Regular',
+    fontSize: 18,
+    color: '#B9B9B9',
+    textAlign: 'center',
   },
 });

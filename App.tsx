@@ -23,9 +23,15 @@ import CreatePostDetailsScreen from './CreatePostDetailsScreen';
 // Import the auth and onboarding screens
 import PhoneNumberScreen from './PhoneNumberScreen';
 import VerifyCodeScreen from './VerifyCodeScreen';
-import OnboardingIntroScreen from './OnboardingIntroScreen'; // Import the new intro screen
+import OnboardingIntroScreen from './OnboardingIntroScreen';
 import ConnectContactsScreen from './ConnectContactsScreen';
 import AddFriendsScreen from './AddFriendsScreen';
+
+// Import new profile creation screens
+import CreateProfileFirstNameScreen from './CreateProfileFirstNameScreen';
+import CreateProfileLastNameScreen from './CreateProfileLastNameScreen';
+import CreateProfileUsernameScreen from './CreateProfileUsernameScreen';
+import CreateProfilePhotoScreen from './CreateProfilePhotoScreen';
 
 const Tab = createBottomTabNavigator();
 const FeedStack = createStackNavigator();
@@ -44,9 +50,12 @@ type AuthStackParamList = {
 
 // Updated param list for the entire onboarding flow
 type OnboardingStackParamList = {
-  OnboardingIntro: undefined; // New start screen
-  OnboardingQuestion: undefined; // Kept for type-safety in the unused file
+  OnboardingIntro: undefined;
   ConnectContacts: undefined;
+  CreateProfileFirstName: undefined;
+  CreateProfileLastName: undefined;
+  CreateProfileUsername: undefined;
+  CreateProfilePhoto: undefined;
   AddFriends: undefined;
 };
 const OnboardingStack = createStackNavigator<OnboardingStackParamList>();
@@ -154,6 +163,22 @@ function OnboardingStackScreen({ onOnboardingComplete }: { onOnboardingComplete:
           name="ConnectContacts"
           component={ConnectContactsScreen}
         />
+        <OnboardingStack.Screen
+          name="CreateProfileFirstName"
+          component={CreateProfileFirstNameScreen}
+        />
+        <OnboardingStack.Screen
+          name="CreateProfileLastName"
+          component={CreateProfileLastNameScreen}
+        />
+        <OnboardingStack.Screen
+          name="CreateProfileUsername"
+          component={CreateProfileUsernameScreen}
+        />
+         <OnboardingStack.Screen
+          name="CreateProfilePhoto"
+          component={CreateProfilePhotoScreen}
+        />
         <OnboardingStack.Screen name="AddFriends">
           {(props) => (
             <AddFriendsScreen
@@ -183,15 +208,19 @@ export default function App() {
 
         setCurrentUser(user as FirebaseUser);
 
-        // A profile is "complete" if the user document exists in Firestore.
-        // The OnboardingStack will guide them through creating it.
-        // NOTE: We now create the user doc in ConnectContactsScreen, so this check will pass
-        // after the user has made a choice there. The AddFriendsScreen's 'onOnboardingComplete'
-        // prop is what finally switches the view to the main app.
+        // A profile is considered "complete" for navigation purposes if the user document exists.
+        // The OnboardingStack guides them through filling it out.
+        // The `onOnboardingComplete` callback passed to the stack is what ultimately
+        // flips the `isProfileComplete` state to true, showing the main app.
         if (docSnap.exists) {
-          setIsProfileComplete(true);
+            // Check for a specific field that indicates profile setup is done, e.g., 'username'.
+            // For now, we rely on the `onOnboardingComplete` callback from AddFriendsScreen.
+            // Let's keep the logic simple: if doc exists, show onboarding.
+            // `isProfileComplete` will be toggled manually at the end of the flow.
+            // This prevents showing the main app prematurely.
+            setIsProfileComplete(false);
         } else {
-          setIsProfileComplete(false);
+            setIsProfileComplete(false);
         }
       } else {
         setCurrentUser(null);
@@ -210,16 +239,11 @@ export default function App() {
       </View>
     );
   }
-
-  // The logic for creating the user document has been moved from
-  // OnboardingQuestionScreen to ConnectContactsScreen, as the old screen is no longer used.
-  // We need to create a dummy user document before the `AddFriends` screen is shown.
-  // An alternative is to create it in the new `OnboardingIntroScreen` upon clicking 'Let's go'.
-  // Let's create it in `ConnectContactsScreen` when the user makes a choice.
-  // **Correction**: The user doc is created in `OnboardingQuestionScreen`. Since we're replacing it,
-  // we must move that logic. `ConnectContactsScreen` is the best place. It already has logic
-  // to update the user doc, but it assumes it exists. We'll add the creation logic there.
-
+  
+  // The logic for displaying screens is now:
+  // 1. No user? Show AuthStack.
+  // 2. User exists but profile isn't "complete" (flag set by onboarding flow)? Show OnboardingStack.
+  // 3. User exists AND profile is complete? Show RootStack (main app).
   return (
     <NavigationContainer>
       {!currentUser ? (

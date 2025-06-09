@@ -14,11 +14,14 @@ import * as SMS from 'expo-sms';
 import { auth, db } from './firebaseConfig';
 import { User as FirebaseUser } from 'firebase/auth';
 
-// Param list for the OnboardingStack
+// Param list for the OnboardingStack to match App.tsx
 type OnboardingStackParamList = {
   OnboardingIntro: undefined;
-  OnboardingQuestion: undefined;
   ConnectContacts: undefined;
+  CreateProfileFirstName: undefined;
+  CreateProfileLastName: undefined;
+  CreateProfileUsername: undefined;
+  CreateProfilePhoto: undefined;
   AddFriends: undefined; // This screen
 };
 
