@@ -128,7 +128,8 @@ export default function ProfileScreen({ navigation, route }) {
           <View style={styles.buttonWrapper}>
             {isCurrentUser ? (
               <>
-                <Pressable style={styles.editProfileButton} onPress={() => { /* Handle Edit Profile */ }}>
+                {/* --- UPDATE THIS BUTTON'S ONPRESS --- */}
+                <Pressable style={styles.editProfileButton} onPress={() => navigation.navigate('EditProfile')}>
                   <Text style={styles.editProfileText}>Edit profile</Text>
                 </Pressable>
                 <Pressable 

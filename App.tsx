@@ -21,6 +21,7 @@ import StoryViewer from './StoryViewer';
 import SearchScreen from './SearchScreen';
 import SelectPhotoScreen from './SelectPhotoScreen';
 import CreatePostDetailsScreen from './CreatePostDetailsScreen';
+import EditProfileScreen from './EditProfileScreen'; // <-- IMPORT NEW SCREEN
 
 // Import the auth and onboarding screens
 import PhoneNumberScreen from './PhoneNumberScreen';
@@ -319,6 +320,12 @@ export default function App() {
             name="AddMoreFriends"
             component={AddMoreFriendsScreen}
             options={{ presentation: 'modal' }}
+          />
+          {/* --- ADD NEW SCREEN TO ROOT STACK --- */}
+          <RootStack.Screen
+            name="EditProfile"
+            component={EditProfileScreen}
+            options={{ presentation: 'modal', headerShown: false }}
           />
         </RootStack.Navigator>
       )}
