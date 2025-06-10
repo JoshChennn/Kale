@@ -124,12 +124,20 @@ export default function ProfileScreen({ navigation, route }) {
             {user.bio}
           </Text>
 
-          {/* Buttons */}
+          {/* --- MODIFIED BUTTONS START --- */}
           <View style={styles.buttonWrapper}>
             {isCurrentUser ? (
-              <Pressable style={styles.editProfileButton} onPress={() => { /* Handle Edit Profile */ }}>
-                <Text style={styles.editProfileText}>Edit profile</Text>
-              </Pressable>
+              <>
+                <Pressable style={styles.editProfileButton} onPress={() => { /* Handle Edit Profile */ }}>
+                  <Text style={styles.editProfileText}>Edit profile</Text>
+                </Pressable>
+                <Pressable 
+                  style={styles.addFriendsProfileButton} 
+                  onPress={() => navigation.navigate('AddMoreFriends')}
+                >
+                  <Text style={styles.addFriendsProfileButtonText}>Add friends</Text>
+                </Pressable>
+              </>
             ) : (
               <Pressable
                   style={isFollowing ? styles.removeFriendButton : styles.addFriendButton}
@@ -141,6 +149,8 @@ export default function ProfileScreen({ navigation, route }) {
                 </Pressable>
             )}
           </View>
+          {/* --- MODIFIED BUTTONS END --- */}
+
 
           {/* posts grid or lock */}
           {isCurrentUser || isFollowing ? (
@@ -174,7 +184,6 @@ export default function ProfileScreen({ navigation, route }) {
   );
 }
 
-// Styles remain the same...
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
@@ -196,7 +205,7 @@ const styles = StyleSheet.create({
     marginTop: 69,
     marginLeft: 35,
     marginBottom: 12,
-    backgroundColor: '#e6e6e6', // Add a background color for when the image is loading or missing
+    backgroundColor: '#e6e6e6',
   },
 
   row: {
@@ -254,7 +263,7 @@ const styles = StyleSheet.create({
   },
 
   removeFriendButton: {
-    backgroundColor: '#e6e6e6', // light gray
+    backgroundColor: '#e6e6e6',
     borderRadius: 5,
     width: 113,
     height: 33,
@@ -266,37 +275,7 @@ const styles = StyleSheet.create({
   removeFriendText: {
     fontFamily: 'PatrickHand-Regular',
     fontSize: 16,
-    color: '#53544D', // dark gray
-  },
-
-  addBestieButton: {
-    backgroundColor: '#8BA637',
-    borderRadius: 5,
-    width: 150,
-    height: 33,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  addBestieText: {
-    fontFamily: 'PatrickHand-Regular',
-    fontSize: 16,
-    color: '#f2f2f2',
-  },
-
-  removeBestieButton: {
-    backgroundColor: '#e6e6e6', // light gray
-    borderRadius: 5,
-    width: 150,
-    height: 33,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  removeBestieText: {
-    fontFamily: 'PatrickHand-Regular',
-    fontSize: 16,
-    color: '#53544D', // dark gray
+    color: '#53544D',
   },
 
   lockContainer: {
@@ -331,17 +310,32 @@ const styles = StyleSheet.create({
     backgroundColor: '#ccc',
   },
 
+  // --- MODIFIED & NEW STYLES ---
   editProfileButton: {
-    backgroundColor: '#e6e6e6', // light gray
+    backgroundColor: '#e6e6e6',
     borderRadius: 5,
-    width: 150, // Adjust width as needed
+    width: 113,
     height: 33,
     justifyContent: 'center',
     alignItems: 'center',
+    marginRight: 12,
   },
   editProfileText: {
     fontFamily: 'PatrickHand-Regular',
     fontSize: 16,
-    color: '#53544D', // dark gray
+    color: '#53544D',
+  },
+  addFriendsProfileButton: {
+    backgroundColor: '#8BA637',
+    borderRadius: 5,
+    width: 113,
+    height: 33,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  addFriendsProfileButtonText: {
+    fontFamily: 'PatrickHand-Regular',
+    fontSize: 16,
+    color: '#f2f2f2',
   },
 });

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, Alert } from 'react-native';
 import { useFonts } from 'expo-font';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -28,6 +28,7 @@ import VerifyCodeScreen from './VerifyCodeScreen';
 import OnboardingIntroScreen from './OnboardingIntroScreen';
 import ConnectContactsScreen from './ConnectContactsScreen';
 import AddFriendsScreen from './AddFriendsScreen';
+import AddMoreFriendsScreen from './AddMoreFriendsScreen';
 
 // Import new profile creation screens
 import CreateProfileFirstNameScreen from './CreateProfileFirstNameScreen';
@@ -159,10 +160,10 @@ function AuthStackScreen() {
 // Updated stack for the onboarding process
 function OnboardingStackScreen({ 
   initialRouteName,
-  setAuthStatus 
+  onOnboardingComplete
 }: { 
   initialRouteName: keyof OnboardingStackParamList;
-  setAuthStatus: (status: 'LOADING' | 'LOGGED_OUT' | 'ONBOARDING' | 'LOGGED_IN') => void;
+  onOnboardingComplete: () => Promise<void>;
 }) {
     return (
       <OnboardingStack.Navigator
@@ -196,7 +197,7 @@ function OnboardingStackScreen({
         <OnboardingStack.Screen
           name="AddFriends"
           component={(props: StackScreenProps<OnboardingStackParamList, 'AddFriends'>) => 
-            <AddFriendsScreen {...props} onOnboardingComplete={() => setAuthStatus('LOGGED_IN')} />
+            <AddFriendsScreen {...props} onOnboardingComplete={onOnboardingComplete} />
           }
         />
       </OnboardingStack.Navigator>
@@ -212,12 +213,26 @@ export default function App() {
   const [currentUser, setCurrentUser] = React.useState<FirebaseUser | null>(null);
   const [initialOnboardingRoute, setInitialOnboardingRoute] = React.useState<keyof OnboardingStackParamList>('OnboardingIntro');
 
+  const handleOnboardingComplete = async () => {
+    if (currentUser) {
+      try {
+        await db.collection('users').doc(currentUser.uid).set(
+          { onboardingCompleted: true },
+          { merge: true }
+        );
+        // The onSnapshot listener will automatically detect this change
+        // and set the authStatus to 'LOGGED_IN', making this the single source of truth.
+      } catch (error) {
+        console.error("Error marking onboarding as complete: ", error);
+        Alert.alert("Error", "Could not save your progress. Please try again.");
+      }
+    }
+  };
+
   React.useEffect(() => {
     let firestoreUnsubscribe: () => void = () => {};
 
-    // This single listener will manage all state transitions, preventing race conditions.
     const authUnsubscribe = auth.onAuthStateChanged(user => {
-      // Unsubscribe from any previous Firestore listener when auth state changes.
       if (firestoreUnsubscribe) {
         firestoreUnsubscribe();
       }
@@ -226,13 +241,13 @@ export default function App() {
         setCurrentUser(user as FirebaseUser);
         const userDocRef = doc(db, 'users', user.uid);
         
-        // Listen to the user's profile document in Firestore.
         firestoreUnsubscribe = onSnapshot(userDocRef, (docSnap) => {
           if (docSnap.exists()) {
             const userData = docSnap.data();
             if (userData.onboardingCompleted) {
               setAuthStatus('LOGGED_IN');
             } else {
+              setAuthStatus('ONBOARDING');
               // Onboarding is in progress, figure out where to resume.
               if (!userData.firstName) {
                 setInitialOnboardingRoute('CreateProfileFirstName');
@@ -240,18 +255,16 @@ export default function App() {
                 setInitialOnboardingRoute('CreateProfileLastName');
               } else if (!userData.username) {
                 setInitialOnboardingRoute('CreateProfileUsername');
-              } else if (!userData.photoURL) { // After username, check for photo
+              } else if (userData.photoURL === undefined) { // Check if photo step is untouched
                 setInitialOnboardingRoute('CreateProfilePhoto');
-              } else { // After photo, it's add friends
+              } else { // photoURL is set (to a URL or null), so the step is done. Move on.
                 setInitialOnboardingRoute('AddFriends');
               }
-              setAuthStatus('ONBOARDING');
             }
           } else {
             // User is authenticated but has no Firestore document yet.
-            // This is the state right after phone verification.
-            setInitialOnboardingRoute('OnboardingIntro');
             setAuthStatus('ONBOARDING');
+            setInitialOnboardingRoute('OnboardingIntro');
           }
         });
       } else {
@@ -281,7 +294,7 @@ export default function App() {
   return (
     <NavigationContainer>
       {authStatus === 'LOGGED_OUT' && <AuthStackScreen />}
-      {authStatus === 'ONBOARDING' && <OnboardingStackScreen initialRouteName={initialOnboardingRoute} setAuthStatus={setAuthStatus} />}
+      {authStatus === 'ONBOARDING' && <OnboardingStackScreen initialRouteName={initialOnboardingRoute} onOnboardingComplete={handleOnboardingComplete} />}
       {authStatus === 'LOGGED_IN' && currentUser && (
         <RootStack.Navigator screenOptions={{ headerShown: false }}>
           <RootStack.Screen name="MainTabs">
@@ -301,6 +314,11 @@ export default function App() {
             name="StoryViewer"
             component={StoryViewer}
             options={{ presentation: 'modal', headerShown: false }}
+          />
+          <RootStack.Screen
+            name="AddMoreFriends"
+            component={AddMoreFriendsScreen}
+            options={{ presentation: 'modal' }}
           />
         </RootStack.Navigator>
       )}

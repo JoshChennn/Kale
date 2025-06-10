@@ -77,6 +77,29 @@ export default function CreateProfilePhotoScreen({ navigation }: Props) {
   
     return await getDownloadURL(storageRef);
   }
+  
+  const handleSkip = async () => {
+    if (!currentUser) {
+      Alert.alert('Error', 'Not authenticated. Please restart the app.');
+      return;
+    }
+    setLoading(true);
+    try {
+      // Mark the photo step as completed by setting photoURL to null
+      await db.collection('users').doc(currentUser.uid).set(
+        {
+          photoURL: null,
+        },
+        { merge: true }
+      );
+      navigation.navigate('AddFriends');
+    } catch (error) {
+      console.error('Failed to skip photo step: ', error);
+      Alert.alert('Error', 'Could not save your progress. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleContinue = async () => {
     if (!currentUser) {
@@ -84,8 +107,9 @@ export default function CreateProfilePhotoScreen({ navigation }: Props) {
       return;
     }
     if (!imageUri) {
-        // If they press continue without a photo, it's the same as skipping
-        handleSkip();
+        // If they press continue without a photo, it's the same as skipping.
+        // This now calls the async function that updates Firestore.
+        await handleSkip();
         return;
     }
     setLoading(true);
@@ -105,9 +129,6 @@ export default function CreateProfilePhotoScreen({ navigation }: Props) {
     }
   };
 
-  const handleSkip = () => {
-    navigation.navigate('AddFriends');
-  };
 
   return (
     <View style={styles.container}>

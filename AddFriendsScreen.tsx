@@ -9,6 +9,8 @@ import {
   SectionList,
   Animated,
   Image,
+  Modal,
+  ScrollView,
 } from 'react-native';
 import { StackScreenProps } from '@react-navigation/stack';
 import * as Contacts from 'expo-contacts';
@@ -74,6 +76,28 @@ export default function AddFriendsScreen({ onOnboardingComplete }: Props) {
   const [userFirstName, setUserFirstName] = React.useState('');
   const currentUser = auth.currentUser as FirebaseUser;
   const [ellipsisState, setEllipsisState] = React.useState(0);
+  const [isHelpModalVisible, setHelpModalVisible] = React.useState(false);
+  const scaleAnim = React.useRef(new Animated.Value(0)).current;
+
+  const showHelpModal = () => {
+    setHelpModalVisible(true);
+    Animated.spring(scaleAnim, {
+      toValue: 1,
+      useNativeDriver: true,
+      tension: 50,
+      friction: 7,
+    }).start();
+  };
+
+  const hideHelpModal = () => {
+    setHelpModalVisible(false);
+    Animated.spring(scaleAnim, {
+      toValue: 0,
+      useNativeDriver: true,
+      tension: 50,
+      friction: 7,
+    }).start();
+  };
 
   // Animation for ellipsis
   React.useEffect(() => {
@@ -136,9 +160,6 @@ export default function AddFriendsScreen({ onOnboardingComplete }: Props) {
         if (data && data.phoneNumber) {
             const key = data.phoneNumber.replace(/\D/g, '').slice(-10);
             
-            // --- THIS IS THE FIX ---
-            // We create a new, plain object for each user to prevent a shared reference bug.
-            // This ensures each user in the list has their own distinct data.
             allKaleUsers[key] = {
               uid: doc.id,
               phoneNumber: data.phoneNumber,
@@ -228,10 +249,10 @@ export default function AddFriendsScreen({ onOnboardingComplete }: Props) {
 
       const newSections = [];
       if (kaleUsers.length > 0) {
-        newSections.push({ title: 'On Kale', data: kaleUsers });
+        newSections.push({ title: 'Already On Kale', data: kaleUsers });
       }
       if (nonKaleContacts.length > 0) {
-        newSections.push({ title: 'Invite to Kale', data: nonKaleContacts });
+        newSections.push({ title: 'Not On Kale Yet', data: nonKaleContacts });
       }
       setSections(newSections);
       setLoading(false);
@@ -336,7 +357,7 @@ export default function AddFriendsScreen({ onOnboardingComplete }: Props) {
   const canContinue = count >= MINIMUM_FOLLOW_INVITE;
 
   const renderItem = ({ item, section }: { item: DisplayUser | NonKaleContact; section: { title: string } }) => {
-    const isKaleUser = section.title === 'On Kale';
+    const isKaleUser = section.title === 'Already On Kale';
     const kaleItem = item as DisplayUser;
     
     const id = isKaleUser ? kaleItem.uid : (item as NonKaleContact).id;
@@ -349,7 +370,7 @@ export default function AddFriendsScreen({ onOnboardingComplete }: Props) {
 
     let buttonText = isKaleUser
       ? (isDone ? 'Following' : 'Follow')
-      : (isDone ? 'Requested' : 'Invite + Follow');
+      : (isDone ? 'Requested' : 'Follow');
 
     if (isWaiting) {
       const dots = '.'.repeat(ellipsisState);
@@ -358,18 +379,21 @@ export default function AddFriendsScreen({ onOnboardingComplete }: Props) {
 
     return (
       <View style={styles.contactRow}>
-        {isKaleUser ? (
+        {isKaleUser && (
           kaleItem.photoURL ? (
             <Image source={{ uri: kaleItem.photoURL }} style={styles.profileImage} />
           ) : (
-            <View style={styles.profileImagePlaceholder}>
-              <MaterialIcons name="person" size={24} color="#8BA637" />
-            </View>
+            <Image 
+              source={require('./assets/default-profile-photo.png')} 
+              style={styles.profileImage} 
+            />
           )
-        ) : (
-          <View style={styles.profileImagePlaceholder}>
-            <MaterialIcons name="person-add" size={24} color="#B9B9B9" />
-          </View>
+        )}
+        {!isKaleUser && (
+          <Image 
+            source={require('./assets/default-profile-photo.png')} 
+            style={styles.profileImage} 
+          />
         )}
 
         <View style={styles.contactInfo}>
@@ -408,13 +432,157 @@ export default function AddFriendsScreen({ onOnboardingComplete }: Props) {
 
   return (
     <View style={styles.container}>
+        <Modal
+            animationType="none"
+            transparent={true}
+            visible={isHelpModalVisible}
+            onRequestClose={hideHelpModal}
+        >
+            <View style={[
+                styles.modalOverlay,
+                { opacity: isHelpModalVisible ? 1 : 0 }
+            ]}>
+                <Animated.View 
+                    style={[
+                        styles.modalContent,
+                        {
+                            transform: [
+                                { scale: scaleAnim },
+                                {
+                                    translateY: scaleAnim.interpolate({
+                                        inputRange: [0, 1],
+                                        outputRange: [50, 0]
+                                    })
+                                }
+                            ]
+                        }
+                    ]}
+                >
+                    <ScrollView 
+                        style={styles.modalScrollView}
+                        contentContainerStyle={styles.modalScrollContent}
+                        showsVerticalScrollIndicator={false}
+                    >
+                        <Text style={styles.modalTitle}>
+                        Since Kale is <Text style={{ color: '#4F6A56' }}>only</Text> for friends, you'll need to add some to get started.
+                        {'\n\n'}
+                        <Text style={styles.modalEmoji}>👋👋</Text>{'\n\n'}
+                        Here's how it works:
+                        </Text>
+                        <Text style={styles.modalStep}>1. You can follow anyone from your contacts. 📒</Text>
+                        <View style={styles.mockupContainer}>
+                            <View style={styles.mockupRow}>
+                                <View style={styles.mockupAvatar} />
+                                <View style={styles.mockupTextContainer}>
+                                    <View style={styles.mockupTextLineLong} />
+                                    <View style={styles.mockupTextLineShort} />
+                                </View>
+                                <View style={[styles.mockupFollowButton, {backgroundColor: '#e6e6e6'}]}><Text style={[styles.mockupButtonText, {color: '#53544D'}]}>Following</Text></View>
+                            </View>
+                            <View style={styles.mockupRow}>
+                                <View style={styles.mockupAvatar} />
+                                <View style={styles.mockupTextContainer}>
+                                    <View style={styles.mockupTextLineLong} />
+                                    <View style={styles.mockupTextLineShort} />
+                                </View>
+                                <View style={styles.mockupFollowButton}><Text style={styles.mockupButtonText}>Follow</Text></View>
+                            </View>
+                            <View style={styles.mockupRow}>
+                                <View style={styles.mockupAvatar} />
+                                <View style={styles.mockupTextContainer}>
+                                    <View style={styles.mockupTextLineLong} />
+                                    <View style={styles.mockupTextLineShort} />
+                                </View>
+                                <View style={styles.mockupFollowButton}><Text style={styles.mockupButtonText}>Follow</Text></View>
+                            </View>
+                        </View>
+
+                        <Text style={styles.modalStep}>2. Kale will prompt you to send them a text notification so they can follow you back. 🤝</Text>
+                        <View style={styles.mockupSmsContainer}>
+                            <View style={styles.mockupSmsHeader}>
+                                <Text style={styles.mockupSmsTo}>To: Jane Doe</Text>
+                            </View>
+                            <View style={styles.mockupSmsBody}>
+                                <View style={styles.mockupMessageBubble}>
+                                    <View style={[styles.mockupMessageBubbleInner, styles.mockupMessageBubbleInnerTall]}>
+                                        <View style={styles.mockupBubbleTailLeft} />
+                                        <View style={styles.mockupBubbleTailLeftInner} />
+                                    </View>
+                                </View>
+                                <View style={[styles.mockupMessageBubble, styles.mockupMessageBubbleRight]}>
+                                    <View style={[styles.mockupMessageBubbleInner, styles.mockupMessageBubbleInnerRight, styles.mockupMessageBubbleInnerLong, { minWidth: 180, height: 50 }]}>
+                                        <View style={styles.mockupBubbleTailRight} />
+                                        <View style={styles.mockupBubbleTailRightInner} />
+                                    </View>
+                                </View>
+                                <View style={styles.mockupMessageBubble}>
+                                    <View style={styles.mockupMessageBubbleInner}>
+                                        <View style={styles.mockupBubbleTailLeft} />
+                                        <View style={styles.mockupBubbleTailLeftInner} />
+                                    </View>
+                                </View>
+                                <View style={[styles.mockupMessageBubble, styles.mockupMessageBubbleRight]}>
+                                    <View style={[styles.mockupMessageBubbleInner, styles.mockupMessageBubbleInnerRight, styles.mockupMessageBubbleInnerLong, { minWidth: 180 }]}>
+                                        <View style={styles.mockupBubbleTailRight} />
+                                        <View style={styles.mockupBubbleTailRightInner} />
+                                    </View>
+                                </View>
+                                <View style={[styles.mockupMessageBubble, { marginBottom: 50 }]}>
+                                    <View style={[styles.mockupMessageBubbleInner, { minWidth: 140 }]}>
+                                        <View style={styles.mockupBubbleTailLeft} />
+                                        <View style={styles.mockupBubbleTailLeftInner} />
+                                    </View>
+                                </View>
+                            </View>
+                            <View style={styles.mockupSmsSendRow}>
+                                <View style={styles.mockupSmsInputBox}>
+                                    <Text style={styles.mockupSmsText}>{`${userFirstName || 'Your Name'} requested to follow you.`}</Text>
+                                </View>
+                                <View style={styles.mockupSmsSendButton}>
+                                    <MaterialIcons name="arrow-upward" size={20} color="white" />
+                                </View>
+                            </View>
+                        </View>
+                        <View style={styles.mockupArrowContainer}>
+                            <MaterialIcons name="arrow-downward" size={24} color="#888" />
+                        </View>
+                        <View style={styles.mockupLockScreenNotification}>
+                            <Image source={require('./assets/icon.png')} style={styles.mockupKaleIcon} />
+                            <View style={styles.mockupNotificationTextContainer}>
+                                <View style={styles.mockupNotificationHeader}>
+                                    <Text style={styles.mockupNotificationBody} numberOfLines={2}>
+                                        <Text style={{fontWeight: 'bold'}}>{userFirstName || 'Your Name'}</Text> requested to follow you.
+                                    </Text>
+                                    <Text style={styles.mockupNotificationTime}>now</Text>
+                                </View>
+                            </View>
+                        </View>
+
+                        <Text style={styles.modalStep}>3. If they use your link, they'll automatically follow you back. ✅</Text>
+                    </ScrollView>
+
+                    <Pressable
+                        style={styles.modalCloseButton}
+                        onPress={hideHelpModal}
+                    >
+                        <Text style={styles.modalCloseButtonText}>Close</Text>
+                    </Pressable>
+                </Animated.View>
+            </View>
+        </Modal>
+
         <View style={styles.header}>
-            <Text style={styles.title}>
-                {count >= MINIMUM_FOLLOW_INVITE 
-                    ? "The more you add, the less you'll want to check Instagram :)"
-                    : `Follow at least ${MINIMUM_FOLLOW_INVITE} friends to get started.`}
-            </Text>
+            <View style={styles.titleRow}>
+                <Text style={styles.title}>
+                    {count >= MINIMUM_FOLLOW_INVITE 
+                        ? "The more you add, the less you'll want to check Instagram :)"
+                        : `Follow at least ${MINIMUM_FOLLOW_INVITE} friends to get started.`}
+                </Text>
+            </View>
             <Text style={styles.counter}>🥬 {count}{count < MINIMUM_FOLLOW_INVITE ? `/${MINIMUM_FOLLOW_INVITE}` : ''}</Text>
+            <Pressable onPress={showHelpModal}>
+                <Text style={styles.helpText}>Why?</Text>
+            </Pressable>
         </View>
 
         <SectionList
@@ -443,7 +611,7 @@ export default function AddFriendsScreen({ onOnboardingComplete }: Props) {
                     !canContinue && { backgroundColor: '#B9B9B9' },
                 ]}
             >
-                <Text style={styles.doneButtonText}>Done</Text>
+                <Text style={styles.doneButtonText}>Continue</Text>
             </Pressable>
         </View>
     </View>
@@ -459,8 +627,14 @@ const styles = StyleSheet.create({
     header: {
         paddingTop: 80,
         paddingBottom: 20,
-        paddingHorizontal: 60,
+        paddingHorizontal: 20,
         alignItems: 'center',
+    },
+    titleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 10,
     },
     title: {
         fontSize: 32,
@@ -468,6 +642,14 @@ const styles = StyleSheet.create({
         color: '#8BA637',
         textAlign: 'center',
         lineHeight: 38,
+        maxWidth: '85%',
+    },
+    helpText: {
+        fontSize: 18,
+        fontFamily: 'PatrickHand-Regular',
+        color: '#8BA637',
+        textDecorationLine: 'underline',
+        marginTop: 20,
     },
     counter: {
         fontSize: 60,
@@ -497,15 +679,6 @@ const styles = StyleSheet.create({
         borderRadius: 22,
         marginRight: 12,
         backgroundColor: '#E9E9E9',
-    },
-    profileImagePlaceholder: {
-        width: 44,
-        height: 44,
-        borderRadius: 22,
-        marginRight: 12,
-        backgroundColor: '#E9E9E9',
-        justifyContent: 'center',
-        alignItems: 'center',
     },
     contactInfo: {
         flex: 1,
@@ -580,5 +753,296 @@ const styles = StyleSheet.create({
         color: '#B9B9B9',
         textAlign: 'center',
         marginTop: 10,
+    },
+    // --- MODAL STYLES ---
+    modalOverlay: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    },
+    modalContent: {
+        margin: 20,
+        backgroundColor: 'white',
+        borderRadius: 20,
+        padding: 35,
+        alignItems: 'center',
+        shadowColor: '#000',
+        shadowOffset: {
+            width: 0,
+            height: 2,
+        },
+        shadowOpacity: 0.25,
+        shadowRadius: 4,
+        elevation: 5,
+        width: '90%',
+        maxHeight: '80%',
+    },
+    modalScrollView: {
+        width: '100%',
+    },
+    modalScrollContent: {
+        paddingBottom: 20,
+    },
+    modalTitle: {
+        fontSize: 28,
+        fontFamily: 'PatrickHand-Regular',
+        color: '#8BA637',
+        textAlign: 'center',
+        marginBottom: 0,
+        marginTop: 10,
+    },
+    modalEmoji: {
+        fontSize: 50,
+        textAlign: 'center',
+        marginBottom: 15,
+    },
+    modalStep: {
+        fontSize: 24,
+        fontFamily: 'PatrickHand-Regular',
+        color: '#333',
+        textAlign: 'left',
+        alignSelf: 'flex-start',
+        marginBottom: 20,
+        marginTop: 50,
+        lineHeight: 32,
+    },
+    mockupContainer: {
+        width: '100%',
+        backgroundColor: '#F9F9F9',
+        borderRadius: 8,
+        padding: 10,
+        marginBottom: 15,
+        borderWidth: 1,
+        borderColor: '#EFEFEF',
+    },
+    mockupRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 8,
+    },
+    mockupAvatar: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: '#E9E9E9',
+        marginRight: 12,
+    },
+    mockupTextContainer: {
+        flex: 1,
+    },
+    mockupTextLineLong: {
+        height: 12,
+        width: '80%',
+        backgroundColor: '#E9E9E9',
+        borderRadius: 4,
+        marginBottom: 6,
+    },
+    mockupTextLineShort: {
+        height: 10,
+        width: '50%',
+        backgroundColor: '#E9E9E9',
+        borderRadius: 4,
+    },
+    mockupFollowButton: {
+        backgroundColor: '#8BA637',
+        borderRadius: 5,
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+    },
+    mockupButtonText: {
+        color: 'white',
+        fontSize: 14,
+        fontFamily: 'PatrickHand-Regular',
+    },
+    mockupSmsContainer: {
+        width: '100%',
+        backgroundColor: '#FFFFFF',
+        borderRadius: 16,
+        padding: 12,
+        marginBottom: 8,
+        borderWidth: 1,
+        borderColor: '#EFEFEF',
+    },
+    mockupSmsHeader: {
+        paddingBottom: 8,
+        borderBottomWidth: 1,
+        borderColor: '#f0f0f0',
+        marginBottom: 8,
+    },
+    mockupSmsTo: {
+        fontFamily: 'PatrickHand-Regular',
+        color: '#888',
+        fontSize: 14
+    },
+    mockupSmsBody: {
+        minHeight: 120,
+        marginBottom: 8,
+    },
+    mockupMessageBubble: {
+        marginBottom: 16,
+        maxWidth: '80%',
+    },
+    mockupMessageBubbleRight: {
+        alignSelf: 'flex-end',
+    },
+    mockupMessageBubbleInner: {
+        backgroundColor: '#f0f0f0',
+        borderRadius: 16,
+        padding: 12,
+        height: 20,
+        position: 'relative',
+        justifyContent: 'center',
+    },
+    mockupMessageBubbleInnerTall: {
+        height: 40,
+    },
+    mockupMessageBubbleInnerLong: {
+        minWidth: 120,
+        maxWidth: 200,
+    },
+    mockupMessageBubbleInnerRight: {
+        backgroundColor: '#1F8AFF',
+    },
+    mockupBubbleTailLeft: {
+        position: 'absolute',
+        left: -6,
+        bottom: 0,
+        width: 0,
+        height: 0,
+        borderTopWidth: 10,
+        borderTopColor: 'transparent',
+        borderRightWidth: 10,
+        borderRightColor: '#f0f0f0',
+        borderBottomWidth: 0,
+        borderLeftWidth: 0,
+        borderStyle: 'solid',
+    },
+    mockupBubbleTailLeftInner: {
+        position: 'absolute',
+        left: 2,
+        bottom: 0,
+        width: 0,
+        height: 0,
+        borderTopWidth: 10,
+        borderTopColor: 'transparent',
+        borderLeftWidth: 10,
+        borderLeftColor: '#f0f0f0',
+        borderBottomWidth: 0,
+        borderRightWidth: 0,
+        borderStyle: 'solid',
+    },
+    mockupBubbleTailRight: {
+        position: 'absolute',
+        right: -6,
+        bottom: 0,
+        width: 0,
+        height: 0,
+        borderTopWidth: 10,
+        borderTopColor: 'transparent',
+        borderLeftWidth: 10,
+        borderLeftColor: '#1F8AFF',
+        borderBottomWidth: 0,
+        borderRightWidth: 0,
+        borderStyle: 'solid',
+    },
+    mockupBubbleTailRightInner: {
+        position: 'absolute',
+        right: 2,
+        bottom: 0,
+        width: 0,
+        height: 0,
+        borderTopWidth: 10,
+        borderTopColor: 'transparent',
+        borderRightWidth: 10,
+        borderRightColor: '#1F8AFF',
+        borderBottomWidth: 0,
+        borderLeftWidth: 0,
+        borderStyle: 'solid',
+    },
+    mockupSmsInputBox: {
+        flex: 1,
+        height: 36,
+        backgroundColor: '#f0f0f0',
+        borderRadius: 18,
+        marginRight: 8,
+        paddingHorizontal: 12,
+        justifyContent: 'center',
+    },
+    mockupSmsText: {
+        fontFamily: 'PatrickHand-Regular',
+        color: '#333',
+        fontSize: 15,
+        lineHeight: 18,
+    },
+    mockupSmsSendRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    mockupSmsSendButton: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: '#1F8AFF',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    mockupArrowContainer: {
+        alignItems: 'center',
+        paddingVertical: 12,
+        marginBottom: 10
+    },
+    mockupLockScreenNotification: {
+        width: '100%',
+        backgroundColor: 'rgba(230, 230, 230, 0.8)',
+        borderRadius: 16,
+        padding: 12,
+        marginBottom: 15,
+        flexDirection: 'row',
+        alignItems: 'center'
+    },
+    mockupKaleIcon: {
+        width: 28,
+        height: 28,
+        borderRadius: 8,
+        marginRight: 10,
+    },
+    mockupNotificationTextContainer: {
+        flex: 1,
+    },
+    mockupNotificationHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+    },
+    mockupNotificationBody: {
+        fontFamily: 'PatrickHand-Regular',
+        fontSize: 14,
+        color: '#333',
+        lineHeight: 18,
+        flex: 1,
+        marginRight: 15,
+        marginTop: -2,
+    },
+    mockupNotificationTime: {
+        fontFamily: 'PatrickHand-Regular',
+        fontSize: 12,
+        color: '#888',
+        marginTop: -12,
+    },
+    modalCloseButton: {
+        backgroundColor: '#8BA637',
+        borderRadius: 25,
+        paddingVertical: 12,
+        paddingHorizontal: 30,
+        elevation: 2,
+        marginTop: 20,
+        width: '100%',
+    },
+    modalCloseButtonText: {
+        color: 'white',
+        fontFamily: 'PatrickHand-Regular',
+        fontSize: 20,
+        textAlign: 'center',
     },
 });
