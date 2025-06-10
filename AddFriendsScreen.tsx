@@ -180,6 +180,12 @@ export default function AddFriendsScreen({ onOnboardingComplete }: Props) {
         return;
       }
 
+      // Get current user's phone number for comparison
+      const currentUserDoc = await db.collection('users').doc(currentUser.uid).get();
+      const currentUserData = currentUserDoc.data();
+      const currentUserPhoneNumber = currentUserData?.phoneNumber ? 
+        currentUserData.phoneNumber.replace(/\D/g, '').slice(-10) : null;
+
       // 2. Process contacts, identify users on Kale, and detect invite-to-follow conversions
       const kaleUsers: DisplayUser[] = [];
       const nonKaleContacts: NonKaleContact[] = [];
@@ -195,6 +201,9 @@ export default function AddFriendsScreen({ onOnboardingComplete }: Props) {
         
         const key = mainPhoneNumber.replace(/\D/g, '').slice(-10);
         if (processedNumbers.has(key) || key.length < 10) return;
+
+        // Skip if this is the current user's phone number
+        if (currentUserPhoneNumber && key === currentUserPhoneNumber) return;
 
         const matchedUser = allKaleUsers[key];
         
