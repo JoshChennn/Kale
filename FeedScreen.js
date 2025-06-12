@@ -12,13 +12,7 @@ import {
   Alert,
   SectionList,
   Animated,
-  Vibration, // Kept for fallback on non-supported devices
 } from 'react-native';
-// Import the core haptics library classes
-import {
-  HapticEngine,
-  HapticDeviceCapabilityType
-} from 'react-native-core-haptics-api';
 import { db, auth, functions } from './firebaseConfig';
 import { httpsCallable } from 'firebase/functions';
 import {
@@ -32,6 +26,7 @@ import {
   getDocs,
 } from 'firebase/firestore';
 import defaultProfilePhoto from './assets/default-profile-photo.png';
+import * as Haptics from 'expo-haptics'; // --- HAPTICS: Import the library
 
 const { width: screenWidth } = Dimensions.get('window');
 const storySize = 70;
@@ -42,7 +37,6 @@ export default function FeedScreen({ navigation }) {
   const [followRequests, setFollowRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [postsCleared, setPostsCleared] = useState(false);
-  const [hapticsSupported, setHapticsSupported] = useState(false); // State for haptics support
   const currentUser = auth.currentUser;
 
   // Ref for the SectionList to enable programmatic scrolling
@@ -54,23 +48,9 @@ export default function FeedScreen({ navigation }) {
   const clearedOpacity = useRef(new Animated.Value(0)).current;  // For "cleared" text entrance
   const outlineOpacityAnim = useRef(new Animated.Value(0)).current; // For outline fade-in
   const holdTimeout = useRef(null);
+  const hapticInterval = useRef(null); // Add reference for haptic interval
 
   const handleFollowRequest = httpsCallable(functions, 'handleFollowRequest');
-
-  // --- HAPTICS SUPPORT CHECK ---
-  useEffect(() => {
-    const checkSupport = async () => {
-      try {
-        // Use the new API to check for capabilities
-        const capabilities = await HapticEngine.getDeviceCapabilities();
-        setHapticsSupported(capabilities.supportsHaptics);
-      } catch (error) {
-        console.error("Haptics support check failed:", error);
-        setHapticsSupported(false);
-      }
-    };
-    checkSupport();
-  }, []);
 
 
   // --- DATA FETCHING ---
@@ -203,14 +183,16 @@ export default function FeedScreen({ navigation }) {
   };
 
   const handleHoldComplete = () => {
-    holdTimeout.current = null;
-    // Stop haptics on completion, just in case
-    if (hapticsSupported) {
-      // Stop the haptic engine
-      HapticEngine.stop(undefined).catch(e => console.error("Haptics stop error on completion:", e));
-    } else {
-      Vibration.cancel();
+    // --- HAPTICS: Trigger success feedback on hold completion
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    
+    // Clear the haptic interval
+    if (hapticInterval.current) {
+      clearInterval(hapticInterval.current);
+      hapticInterval.current = null;
     }
+    
+    holdTimeout.current = null;
     
     // Check if the ref is attached and there are posts
     if (listRef.current && posts.length > 0) {
@@ -242,44 +224,16 @@ export default function FeedScreen({ navigation }) {
     }
   };
 
-  const handlePressIn = async () => {
+  const handlePressIn = () => {
+    // --- HAPTICS: Trigger rapid heavy feedback when press begins
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
+    // Start rapid haptic feedback
+    hapticInterval.current = setInterval(() => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }, 0);
+
     holdTimeout.current = setTimeout(handleHoldComplete, 2000);
-
-    if (hapticsSupported) {
-      try {
-        // Start the engine
-        await HapticEngine.start(undefined);
-
-        // Build the pattern using the new, verbose API
-        const intensityParameterID = { rawValue: "HapticIntensity" };
-        const intensityParameter = { parameterID: intensityParameterID, value: 0.7 };
-
-        const sharpnessParameterID = { rawValue: "HapticSharpness" };
-        const sharpnessParameter = { parameterID: sharpnessParameterID, value: 0.4 };
-
-        const hapticEvent = {
-            duration: 2.0, // Duration in seconds
-            relativeTime: 0,
-            eventType: { rawValue: "HapticContinuous" },
-            parameters: [intensityParameter, sharpnessParameter],
-        };
-        
-        // This structure is needed by makePlayer
-        const pattern = { hapticEvents: [hapticEvent] };
-
-        // Create and start the player
-        await HapticEngine.makePlayer(pattern, undefined);
-        await HapticEngine.startPlayerAtTime(pattern, 0, undefined);
-
-      } catch (error) {
-        console.error("Failed to play haptic pattern:", error);
-        // If the advanced haptics fail, fall back to simple vibration
-        Vibration.vibrate(2000);
-      }
-    } else {
-      // Fallback for devices that don't support Core Haptics (e.g., Android)
-      Vibration.vibrate(2000);
-    }
 
     // Animate green circle growth and outline fade-in together
     Animated.parallel([
@@ -301,13 +255,12 @@ export default function FeedScreen({ navigation }) {
       clearTimeout(holdTimeout.current);
       holdTimeout.current = null;
       
-      // Stop the haptic feedback immediately
-      if (hapticsSupported) {
-        HapticEngine.stop(undefined).catch(e => console.error("Haptics stop error on press out:", e));
-      } else {
-        Vibration.cancel();
+      // Clear the haptic interval
+      if (hapticInterval.current) {
+        clearInterval(hapticInterval.current);
+        hapticInterval.current = null;
       }
-
+      
       // Stop any ongoing animations
       scaleAnim.stopAnimation();
       outlineOpacityAnim.stopAnimation();
@@ -465,10 +418,19 @@ export default function FeedScreen({ navigation }) {
   const ListFooterComponent = () => {
     if (posts.length === 0) {
       if (postsCleared) {
+        const getTimeBasedMessage = () => {
+          const hour = new Date().getHours();
+          if (hour >= 5 && hour < 9) return "Go drink some water. 💧";
+          if (hour >= 9 && hour < 15) return "Get some work done. 💼";
+          if (hour >= 15 && hour < 19) return "Get some fresh air. 🌳";
+          if (hour >= 19 && hour < 23) return "Go read a book. 📚";
+          return "Get some sleep. 😴";
+        };
+
         return (
           <Animated.View style={[styles.clearedContainer, { opacity: clearedOpacity }]}>
             <Text style={styles.clearedText}>That's it for today.</Text>
-            <Text style={styles.clearedSubText}>Get some fresh air.</Text>
+            <Text style={styles.clearedSubText}>{getTimeBasedMessage()}</Text>
           </Animated.View>
         );
       }
@@ -751,11 +713,12 @@ const styles = StyleSheet.create({
     fontFamily: 'PatrickHand-Regular',
     fontSize: 24,
     color: '#53544D',
+    marginTop: 100,
   },
   clearedSubText: {
     fontFamily: 'PatrickHand-Regular',
     fontSize: 18,
     color: '#b9b9b9',
-    marginTop: 8,
+    marginTop: 9,
   },
 });
