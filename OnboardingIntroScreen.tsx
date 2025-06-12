@@ -136,8 +136,8 @@ export default function OnboardingIntroScreen({ navigation }: Props) {
         <Text style={styles.paragraph}>No reels. No doomscrolling. Just friends.</Text>
         <Text style={styles.paragraph}>🚭 🚭 🚭</Text>
         <Text style={styles.paragraph}>
-          The first social app in the world that's designed to be{' '}
-          <Text style={styles.highlightedText}>boring</Text>.
+          The first social app in the world that's designed to {' '}
+          <Text style={styles.highlightedText}>make you leave</Text>.
         </Text>
         <Text style={styles.paragraph}>🌱 🌿 🍃</Text>
         <Text style={styles.paragraph}>Sound good?</Text>

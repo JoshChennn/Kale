@@ -20,9 +20,13 @@ export default function ProfileModal({ navigation, route }) {
   const [user, setUser] = useState(null);
   const [userPosts, setUserPosts] = useState([]);
   const [isFollowing, setIsFollowing] = useState(false);
+  const [hasRequested, setHasRequested] = useState(false); // New state for follow requests
   const [loading, setLoading] = useState(true);
 
-  const toggleFollowUser = httpsCallable(functions, 'toggleFollowUser');
+  // Cloud Functions
+  const requestToFollowUser = httpsCallable(functions, 'requestToFollowUser');
+  const withdrawFollowRequest = httpsCallable(functions, 'withdrawFollowRequest');
+  const unfollowUser = httpsCallable(functions, 'unfollowUser');
 
   useEffect(() => {
     if (!userId) return;
@@ -36,19 +40,26 @@ export default function ProfileModal({ navigation, route }) {
       setLoading(false);
     });
 
-    // Check if the current user is following this profile
     let unsubscribeFollowing = () => {};
+    let unsubscribeRequest = () => {};
     if (!isCurrentUser && currentUserId) {
-      // FIX: Updated path to check for following status based on AddFriendsScreen logic
+      // Check if current user is following this profile
       const followingDocRef = doc(db, 'following', currentUserId, 'userFollowing', userId);
       unsubscribeFollowing = onSnapshot(followingDocRef, (docSnap) => {
         setIsFollowing(docSnap.exists());
+      });
+
+      // Check if current user has a pending request to this profile
+      const requestDocRef = doc(db, 'users', userId, 'followRequests', currentUserId);
+      unsubscribeRequest = onSnapshot(requestDocRef, (docSnap) => {
+        setHasRequested(docSnap.exists());
       });
     }
 
     return () => {
       unsubscribeUser();
       unsubscribeFollowing();
+      unsubscribeRequest();
     };
   }, [userId, currentUserId, isCurrentUser]);
 
@@ -62,21 +73,57 @@ export default function ProfileModal({ navigation, route }) {
     return () => unsubscribe();
   }, [userId]);
 
-
-  const handleToggleFollowing = useCallback(async () => {
-    if (isCurrentUser) return;
-  
-    const wasFollowing = isFollowing;
-    setIsFollowing(!wasFollowing);
-  
+  const handleRequestFollow = useCallback(async () => {
+    if (isCurrentUser || isFollowing || hasRequested) return;
+    setHasRequested(true); // Optimistic update
     try {
-      await toggleFollowUser({ userIdToFollow: userId });
+      await requestToFollowUser({ userIdToFollow: userId });
     } catch (e) {
-      console.error('Failed to follow/unfollow user:', e);
-      setIsFollowing(wasFollowing);
-      Alert.alert("Error", e.message || "Could not perform action. Please try again.");
+      console.error('Failed to send follow request:', e);
+      setHasRequested(false); // Revert on error
+      Alert.alert("Error", "Could not send follow request. Please try again.");
     }
-  }, [isCurrentUser, userId, isFollowing, toggleFollowUser]);
+  }, [isCurrentUser, userId, isFollowing, hasRequested]);
+
+  const handleWithdrawRequest = useCallback(async () => {
+    if (isCurrentUser || !hasRequested) return;
+    setHasRequested(false); // Optimistic update
+    try {
+      await withdrawFollowRequest({ userIdToWithdrawFrom: userId });
+    } catch (e) {
+      console.error('Failed to withdraw request:', e);
+      setHasRequested(true); // Revert on error
+      Alert.alert("Error", "Could not withdraw request. Please try again.");
+    }
+  }, [isCurrentUser, userId, hasRequested]);
+
+  const handleUnfollow = useCallback(() => {
+    if (isCurrentUser || !isFollowing) return;
+    Alert.alert(
+      `Unfollow @${user?.username || 'user'}?`,
+      "You will need to request to follow them again to see their posts.",
+      [
+        {
+          text: "Cancel",
+          style: "cancel"
+        },
+        { 
+          text: "Unfollow", 
+          style: "destructive", 
+          onPress: async () => {
+            setIsFollowing(false); // Optimistic update
+            try {
+              await unfollowUser({ userIdToUnfollow: userId });
+            } catch (e) {
+              console.error('Failed to unfollow user:', e);
+              setIsFollowing(true); // Revert on error
+              Alert.alert("Error", "Could not unfollow user. Please try again.");
+            }
+          }
+        }
+      ]
+    );
+  }, [isCurrentUser, userId, isFollowing, user?.username]);
 
   if (loading) {
     return (
@@ -100,6 +147,28 @@ export default function ProfileModal({ navigation, route }) {
     date: p.createdAt ? p.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'someday'
   }));
 
+  const renderFollowButton = () => {
+    if (isFollowing) {
+      return (
+        <Pressable style={styles.followingButton} onPress={handleUnfollow}>
+          <Text style={styles.followingButtonText}>Following</Text>
+        </Pressable>
+      );
+    }
+    if (hasRequested) {
+      return (
+        <Pressable style={styles.requestedButton} onPress={handleWithdrawRequest}>
+          <Text style={styles.requestedButtonText}>Requested</Text>
+        </Pressable>
+      );
+    }
+    return (
+      <Pressable style={styles.addFriendButton} onPress={handleRequestFollow}>
+        <Text style={styles.addFriendText}>Follow</Text>
+      </Pressable>
+    );
+  };
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#F2F2F2' }}>
       <View style={{ flex: 1 }}>
@@ -117,29 +186,20 @@ export default function ProfileModal({ navigation, route }) {
               style={styles.profileImage} 
             />
             <View style={styles.row}>
-              {/* FIX: Use displayName instead of name */}
               <Text style={styles.name}>{user.displayName}</Text>
               <MaterialIcons name="verified" size={20} color="#8BA637" style={{ marginLeft: 4 }} />
             </View>
-            {/* FIX: Use username instead of handle, and update fallback */}
             <Text style={styles.handle}>{user.username ? `@${user.username}` : `@${(user.displayName || '').toLowerCase().replace(/\s/g, '')}`}</Text>
             <Text style={styles.bio}>{user.bio}</Text>
           </View>
 
           <View style={styles.buttonWrapper}>
             {isCurrentUser ? (
-              <Pressable style={styles.editProfileButton} onPress={() => { /* Handle Edit Profile */ }}>
+              <Pressable style={styles.editProfileButton} onPress={() => navigation.navigate('EditProfile')}>
                 <Text style={styles.editProfileText}>Edit profile</Text>
               </Pressable>
             ) : (
-                <Pressable
-                  style={isFollowing ? styles.removeFriendButton : styles.addFriendButton}
-                  onPress={handleToggleFollowing}
-                >
-                  <Text style={isFollowing ? styles.removeFriendText : styles.addFriendText}>
-                    {isFollowing ? "Unfollow" : "Follow"}
-                  </Text>
-                </Pressable>
+                renderFollowButton()
             )}
           </View>
 
@@ -165,6 +225,7 @@ export default function ProfileModal({ navigation, route }) {
             <View style={styles.lockContainer}>
               <MaterialIcons name="lock" size={72} color="#b9b9b9" />
               <Text style={styles.lockText}>This account is private.</Text>
+              <Text style={styles.lockSubText}>Follow them to see their posts.</Text>
             </View>
           )}
         </ScrollView>
@@ -173,7 +234,6 @@ export default function ProfileModal({ navigation, route }) {
   );
 }
 
-// Styles remain the same...
 const styles = StyleSheet.create({
   navBar: {
     position: 'absolute',
@@ -198,7 +258,7 @@ const styles = StyleSheet.create({
     borderColor: '#b9b9b9',  
     marginLeft: 35,
     marginBottom: 12,
-    backgroundColor: '#e6e6e6', // Add a background color for when the image is loading or missing
+    backgroundColor: '#e6e6e6',
   },
   row: {
     flexDirection: 'row',
@@ -267,7 +327,12 @@ const styles = StyleSheet.create({
     fontSize: 20,
     color: '#b9b9b9',
     marginTop: 16,
-    marginBottom: 24,
+  },
+  lockSubText: {
+    fontFamily: 'PatrickHand-Regular',
+    fontSize: 16,
+    color: '#b9b9b9',
+    marginTop: 4,
   },
   addFriendButton: {
     backgroundColor: '#8BA637',
@@ -276,49 +341,34 @@ const styles = StyleSheet.create({
     height: 33,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
   },
   addFriendText: {
     fontFamily: 'PatrickHand-Regular',
     fontSize: 16,
     color: '#f2f2f2',
   },
-  removeFriendButton: {
+  followingButton: {
     backgroundColor: '#e6e6e6',
     borderRadius: 5,
     width: 113,
     height: 33,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
   },
-  removeFriendText: {
+  followingButtonText: {
     fontFamily: 'PatrickHand-Regular',
     fontSize: 16,
     color: '#53544D',
   },
-  addBestieButton: {
-    backgroundColor: '#8BA637',
-    borderRadius: 5,
-    width: 150,
-    height: 33,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  addBestieText: {
-    fontFamily: 'PatrickHand-Regular',
-    fontSize: 16,
-    color: '#f2f2f2',
-  },
-  removeBestieButton: {
+  requestedButton: {
     backgroundColor: '#e6e6e6',
     borderRadius: 5,
-    width: 150,
+    width: 113,
     height: 33,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  removeBestieText: {
+  requestedButtonText: {
     fontFamily: 'PatrickHand-Regular',
     fontSize: 16,
     color: '#53544D',

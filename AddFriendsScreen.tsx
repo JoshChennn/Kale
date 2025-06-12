@@ -60,7 +60,7 @@ interface NonKaleContact {
   phoneNumber: string;
 }
 
-const MINIMUM_FOLLOW_INVITE = 2;
+const MINIMUM_FOLLOW_INVITE = 0;
 
 // Single personalized invite message
 const getInviteMessage = (firstName: string) => 

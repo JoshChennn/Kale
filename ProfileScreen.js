@@ -3,7 +3,7 @@ import { View, StyleSheet, Image, SafeAreaView, Text, ScrollView, Dimensions, Pr
 import { MaterialIcons } from '@expo/vector-icons';
 import { db, auth } from './firebaseConfig';
 import { doc, onSnapshot, collection, query, where, orderBy } from 'firebase/firestore';
-import { getFunctions, httpsCallable } from 'firebase/functions';
+import { httpsCallable } from 'firebase/functions';
 import { functions } from './firebaseConfig';
 import defaultProfilePhoto from './assets/default-profile-photo.png';
 
@@ -12,7 +12,6 @@ const gridMargin = 6;
 const imgSize = (screenWidth - gridMargin * 4) / 3;
 
 export default function ProfileScreen({ navigation, route }) {
-  // Use optional chaining for safety in case route.params is undefined on first render
   const userId = route.params?.userId; 
   
   const currentUserId = auth.currentUser?.uid;
@@ -21,9 +20,13 @@ export default function ProfileScreen({ navigation, route }) {
   const [user, setUser] = useState(null);
   const [userPosts, setUserPosts] = useState([]);
   const [isFollowing, setIsFollowing] = useState(false);
+  const [hasRequested, setHasRequested] = useState(false); // New state for follow requests
   const [loading, setLoading] = useState(true);
 
-  const toggleFollowUser = httpsCallable(functions, 'toggleFollowUser');
+  // Cloud Functions
+  const requestToFollowUser = httpsCallable(functions, 'requestToFollowUser');
+  const withdrawFollowRequest = httpsCallable(functions, 'withdrawFollowRequest');
+  const unfollowUser = httpsCallable(functions, 'unfollowUser');
 
   useEffect(() => {
     if (!userId) {
@@ -40,19 +43,26 @@ export default function ProfileScreen({ navigation, route }) {
       setLoading(false);
     });
 
-    // Check if the current user is following this profile
     let unsubscribeFollowing = () => {};
+    let unsubscribeRequest = () => {};
     if (!isCurrentUser && currentUserId) {
-      // FIX: Updated path to check for following status based on AddFriendsScreen logic
+      // Check if current user is following this profile
       const followingDocRef = doc(db, 'following', currentUserId, 'userFollowing', userId);
       unsubscribeFollowing = onSnapshot(followingDocRef, (docSnap) => {
         setIsFollowing(docSnap.exists());
+      });
+
+      // Check if current user has a pending request to this profile
+      const requestDocRef = doc(db, 'users', userId, 'followRequests', currentUserId);
+      unsubscribeRequest = onSnapshot(requestDocRef, (docSnap) => {
+        setHasRequested(docSnap.exists());
       });
     }
     
     return () => {
       unsubscribeUser();
       unsubscribeFollowing();
+      unsubscribeRequest();
     };
   }, [userId, currentUserId, isCurrentUser]);
 
@@ -66,20 +76,57 @@ export default function ProfileScreen({ navigation, route }) {
     return () => unsubscribe();
   }, [userId]);
 
-  const handleToggleFollowing = useCallback(async () => {
-    if (isCurrentUser) return;
-  
-    const wasFollowing = isFollowing;
-    setIsFollowing(!wasFollowing);
-  
+  const handleRequestFollow = useCallback(async () => {
+    if (isCurrentUser || isFollowing || hasRequested) return;
+    setHasRequested(true); // Optimistic update
     try {
-      await toggleFollowUser({ userIdToFollow: userId });
+      await requestToFollowUser({ userIdToFollow: userId });
     } catch (e) {
-      console.error('Failed to follow/unfollow user:', e);
-      setIsFollowing(wasFollowing);
-      Alert.alert("Error", "Could not perform action. Please try again.");
+      console.error('Failed to send follow request:', e);
+      setHasRequested(false); // Revert on error
+      Alert.alert("Error", "Could not send follow request. Please try again.");
     }
-  }, [isCurrentUser, userId, isFollowing, toggleFollowUser]);
+  }, [isCurrentUser, userId, isFollowing, hasRequested]);
+
+  const handleWithdrawRequest = useCallback(async () => {
+    if (isCurrentUser || !hasRequested) return;
+    setHasRequested(false); // Optimistic update
+    try {
+      await withdrawFollowRequest({ userIdToWithdrawFrom: userId });
+    } catch (e) {
+      console.error('Failed to withdraw request:', e);
+      setHasRequested(true); // Revert on error
+      Alert.alert("Error", "Could not withdraw request. Please try again.");
+    }
+  }, [isCurrentUser, userId, hasRequested]);
+
+  const handleUnfollow = useCallback(() => {
+    if (isCurrentUser || !isFollowing) return;
+    Alert.alert(
+      `Unfollow @${user?.username || 'user'}?`,
+      "You will need to request to follow them again to see their posts.",
+      [
+        {
+          text: "Cancel",
+          style: "cancel"
+        },
+        { 
+          text: "Unfollow", 
+          style: "destructive", 
+          onPress: async () => {
+            setIsFollowing(false); // Optimistic update
+            try {
+              await unfollowUser({ userIdToUnfollow: userId });
+            } catch (e) {
+              console.error('Failed to unfollow user:', e);
+              setIsFollowing(true); // Revert on error
+              Alert.alert("Error", "Could not unfollow user. Please try again.");
+            }
+          }
+        }
+      ]
+    );
+  }, [isCurrentUser, userId, isFollowing, user?.username]);
 
   if (loading) {
     return (
@@ -98,6 +145,28 @@ export default function ProfileScreen({ navigation, route }) {
     user: { id: p.userId, name: p.userName, avatar: p.userAvatar },
     date: p.createdAt ? p.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'someday'
   }));
+  
+  const renderFollowButton = () => {
+    if (isFollowing) {
+      return (
+        <Pressable style={styles.followingButton} onPress={handleUnfollow}>
+          <Text style={styles.followingButtonText}>Following</Text>
+        </Pressable>
+      );
+    }
+    if (hasRequested) {
+      return (
+        <Pressable style={styles.requestedButton} onPress={handleWithdrawRequest}>
+          <Text style={styles.requestedButtonText}>Requested</Text>
+        </Pressable>
+      );
+    }
+    return (
+      <Pressable style={styles.addFriendButton} onPress={handleRequestFollow}>
+        <Text style={styles.addFriendText}>Follow</Text>
+      </Pressable>
+    );
+  };
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#F2F2F2' }}>
@@ -124,11 +193,9 @@ export default function ProfileScreen({ navigation, route }) {
             {user.bio}
           </Text>
 
-          {/* --- MODIFIED BUTTONS START --- */}
           <View style={styles.buttonWrapper}>
             {isCurrentUser ? (
               <>
-                {/* --- UPDATE THIS BUTTON'S ONPRESS --- */}
                 <Pressable style={styles.editProfileButton} onPress={() => navigation.navigate('EditProfile')}>
                   <Text style={styles.editProfileText}>Edit profile</Text>
                 </Pressable>
@@ -140,20 +207,10 @@ export default function ProfileScreen({ navigation, route }) {
                 </Pressable>
               </>
             ) : (
-              <Pressable
-                  style={isFollowing ? styles.removeFriendButton : styles.addFriendButton}
-                  onPress={handleToggleFollowing}
-                >
-                  <Text style={isFollowing ? styles.removeFriendText : styles.addFriendText}>
-                    {isFollowing ? "Unfollow" : "Follow"}
-                  </Text>
-                </Pressable>
+              renderFollowButton()
             )}
           </View>
-          {/* --- MODIFIED BUTTONS END --- */}
 
-
-          {/* posts grid or lock */}
           {isCurrentUser || isFollowing ? (
             <View style={styles.gridList}>
               {mappedPosts.map((item, index) => (
@@ -173,10 +230,10 @@ export default function ProfileScreen({ navigation, route }) {
               ))}
             </View>
           ) : (
-            // NOT following: show lock + message
             <View style={styles.lockContainer}>
               <MaterialIcons name="lock" size={72} color="#b9b9b9" />
               <Text style={styles.lockText}>This account is private.</Text>
+              <Text style={styles.lockSubText}>Follow them to see their posts.</Text>
             </View>
           )}
         </ScrollView>
@@ -190,13 +247,11 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F2F2F2',
   },
-
   container: {
     paddingBottom: 32,
     backgroundColor: '#F2F2F2',
     flexGrow: 1,
   },
-
   profileImage: {
     width: 80,
     height: 80,
@@ -208,20 +263,17 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     backgroundColor: '#e6e6e6',
   },
-
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     marginLeft: 128,
     marginTop: -80,
   },
-
   name: {
     fontSize: 20,
     fontFamily: 'PatrickHand-Regular',
     color: '#53544D',
   },
-
   handle: {
     fontSize: 16,
     fontFamily: 'PatrickHand-Regular',
@@ -229,7 +281,6 @@ const styles = StyleSheet.create({
     marginLeft: 128,
     marginTop: 0,
   },
-
   bio: {
     marginTop: 28,
     marginLeft: 35,
@@ -239,14 +290,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 22,
   },
-
   buttonWrapper: {
     marginTop: 18,
     marginLeft: 35,
     flexDirection: 'row',
     alignItems: 'center',
   },
-
   addFriendButton: {
     backgroundColor: '#8BA637',
     borderRadius: 5,
@@ -254,31 +303,38 @@ const styles = StyleSheet.create({
     height: 33,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
   },
-
   addFriendText: {
     fontFamily: 'PatrickHand-Regular',
     fontSize: 16,
     color: '#f2f2f2',
   },
-
-  removeFriendButton: {
+  followingButton: {
     backgroundColor: '#e6e6e6',
     borderRadius: 5,
     width: 113,
     height: 33,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
   },
-
-  removeFriendText: {
+  followingButtonText: {
     fontFamily: 'PatrickHand-Regular',
     fontSize: 16,
     color: '#53544D',
   },
-
+  requestedButton: {
+    backgroundColor: '#e6e6e6',
+    borderRadius: 5,
+    width: 113,
+    height: 33,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  requestedButtonText: {
+    fontFamily: 'PatrickHand-Regular',
+    fontSize: 16,
+    color: '#53544D',
+  },
   lockContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -286,22 +342,24 @@ const styles = StyleSheet.create({
     backgroundColor: '#F2F2F2',
     paddingTop: 150,
   },
-
   lockText: {
     fontFamily: 'PatrickHand-Regular',
     fontSize: 20,
     color: '#b9b9b9',
     marginTop: 16,
-    marginBottom: 24,
   },
-
+  lockSubText: {
+    fontFamily: 'PatrickHand-Regular',
+    fontSize: 16,
+    color: '#b9b9b9',
+    marginTop: 4,
+  },
   gridList: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     marginTop: 40,
     marginHorizontal: gridMargin,
   },
-
   gridImg: {
     width: imgSize,
     height: imgSize,
@@ -310,8 +368,6 @@ const styles = StyleSheet.create({
     marginRight: gridMargin,
     backgroundColor: '#ccc',
   },
-
-  // --- MODIFIED & NEW STYLES ---
   editProfileButton: {
     backgroundColor: '#e6e6e6',
     borderRadius: 5,
