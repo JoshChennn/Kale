@@ -473,7 +473,7 @@ export default function AddFriendsScreen({ onOnboardingComplete }: Props) {
                         showsVerticalScrollIndicator={false}
                     >
                         <Text style={styles.modalTitle}>
-                        Since Kale is <Text style={{ color: '#4F6A56' }}>only</Text> for friends, you'll need to add some to get started.
+                        Since Kale is <Text style={{ color: '#4F6A56' }}>only</Text> for friends (no reels), you'll need to add some people first.
                         {'\n\n'}
                         <Text style={styles.modalEmoji}>👋👋</Text>{'\n\n'}
                         Here's how it works:
@@ -698,11 +698,13 @@ const styles = StyleSheet.create({
         fontSize: 20,
         fontFamily: 'PatrickHand-Regular',
         color: '#333',
+        marginTop: -6,
     },
     contactDetail: {
         fontSize: 16,
         fontFamily: 'PatrickHand-Regular',
         color: '#888',
+        marginTop: -3,
     },
     actionButton: {
         backgroundColor: '#8BA637',

@@ -32,6 +32,8 @@ export default function SearchScreen({ navigation }) {
   useEffect(() => {
     if (!currentUserId) return;
 
+    // In a real app, you might fetch this from a different collection like 'following'
+    // For this example, we assume 'following' is an array on the user doc.
     const userRef = db.collection('users').doc(currentUserId);
     const unsubscribe = userRef.onSnapshot(doc => {
       if (doc.exists) {
@@ -76,27 +78,15 @@ export default function SearchScreen({ navigation }) {
 
       try {
         const querySnapshot = await q.get();
-        console.log('Search query:', {
-          firstLetter,
-          searchTerm,
-          querySize: querySnapshot.size
-        });
-        
         const initialResults = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        console.log('Initial results:', initialResults.length);
 
         // Step 2: Client-side filtering for a true "contains" search.
         // This checks if the search term is in the user's name or username.
         const filteredResults = initialResults.filter(user => {
             const name = user.name ? user.name.toLowerCase() : '';
             const username = user.username ? user.username.toLowerCase() : '';
-            const matches = name.includes(searchTerm) || username.includes(searchTerm);
-            if (matches) {
-              console.log('Match found:', { name, username, searchTerm });
-            }
-            return matches;
+            return name.includes(searchTerm) || username.includes(searchTerm);
         });
-        console.log('Filtered results:', filteredResults.length);
 
         // Step 3: Rank the results. Users you follow are prioritized and appear first.
         const rankedResults = filteredResults.sort((a, b) => {
@@ -174,20 +164,15 @@ export default function SearchScreen({ navigation }) {
                 onPress={() => navigateToProfile(user)}
             >
                 <Image 
-                    source={user.avatar ? { uri: user.avatar } : require('./assets/default-profile-photo.png')} 
+                    source={user.avatar || user.photoURL ? { uri: user.avatar || user.photoURL } : require('./assets/default-profile-photo.png')} 
                     style={styles.avatar} 
                 />
                 <View style={styles.textWrap}>
                     <View style={styles.nameRow}>
-                        <Text style={styles.name}>{user.name || user.username}</Text>
+                        <Text style={styles.name} numberOfLines={1}>{user.name || user.username}</Text>
                         {isFollowing && <MaterialIcons name="how-to-reg" size={16} color="#8BA637" style={styles.followingIcon} />}
                     </View>
-                    <Text style={styles.handle}>@{user.username}</Text>
-                    {user.bio && !showDelete && (
-                        <Text numberOfLines={1} style={styles.bio}>
-                        {user.bio}
-                        </Text>
-                    )}
+                    <Text style={styles.handle} numberOfLines={1}>@{user.username}</Text>
                 </View>
             </Pressable>
             {showDelete && (
@@ -222,6 +207,7 @@ export default function SearchScreen({ navigation }) {
             placeholder="Find anyone…"
             placeholderTextColor="#999"
             style={styles.searchInput}
+            autoCorrect={false}
           />
           {query.length > 0 && (
             <Pressable onPress={() => setQuery('')} style={styles.clearSearch} hitSlop={8}>
@@ -239,13 +225,11 @@ export default function SearchScreen({ navigation }) {
           <FlatList
             data={results}
             keyExtractor={(u) => u.id.toString()}
-            renderItem={({ item }) => {
-              console.log('Rendering item:', item);
-              return <UserRow user={item} showDelete={false} />;
-            }}
+            renderItem={({ item }) => <UserRow user={item} showDelete={false} />}
             ListEmptyComponent={<Empty text="No results found." />}
             keyboardDismissMode="on-drag"
             keyboardShouldPersistTaps="handled"
+            contentContainerStyle={styles.listContentContainer}
           />
         )
       ) : (
@@ -257,11 +241,12 @@ export default function SearchScreen({ navigation }) {
                 recentsUsers.length ? (
                 <Text style={styles.recentsTitle}>Recents</Text>
                 ) : (
-                <Empty text="no recents yet" />
+                <Empty text="Search for friends to get started." />
                 )
             }
             keyboardDismissMode="on-drag"
             keyboardShouldPersistTaps="handled"
+            contentContainerStyle={styles.listContentContainer}
         />
       )}
     </View>
@@ -280,6 +265,7 @@ const styles = StyleSheet.create({
   searchBarWrapper: {
     paddingTop: 70,
     paddingHorizontal: 20,
+    paddingBottom: 10,
     backgroundColor: '#f2f2f2',
   },
   searchInputContainer: {
@@ -294,51 +280,65 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     fontSize: 18,
-    color: '#53544D',
     fontFamily: 'PatrickHand-Regular',
+    color: '#53544D',
     paddingVertical: 0,
   },
   clearSearch: { marginLeft: 8 },
+  listContentContainer: {
+    paddingHorizontal: 20,
+  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingVertical: 12,
-    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E9E9E9',
   },
-  rowPressable: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  avatar: { width: 48, height: 48, borderRadius: 24, marginRight: 12 },
-  textWrap: { flex: 1 },
+  rowPressable: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 10,
+  },
+  avatar: { 
+    width: 44, 
+    height: 44, 
+    borderRadius: 22, 
+    marginRight: 12,
+    backgroundColor: '#E9E9E9',
+  },
+  textWrap: {
+    flex: 1,
+    justifyContent: 'center',
+  },
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   name: {
-    fontSize: 16,
+    fontSize: 20,
     fontFamily: 'PatrickHand-Regular',
-    color: '#53544D',
+    color: '#333',
+    marginTop: -6,
   },
   followingIcon: {
-    marginLeft: 6,
+    marginLeft: 8,
   },
   handle: {
-    fontSize: 14,
+    fontSize: 16,
     fontFamily: 'PatrickHand-Regular',
-    color: '#b9b9b9',
-  },
-  bio: {
-    fontSize: 12,
-    fontFamily: 'PatrickHand-Regular',
-    color: '#777',
-    marginTop: 2,
+    color: '#888',
+    marginTop: -3,
   },
   closeBtn: { padding: 8 },
   recentsTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontFamily: 'PatrickHand-Regular',
     color: '#8BA637',
-    marginTop: 20,
-    marginBottom: 6,
-    marginLeft: 20,
+    paddingTop: 10,
+    paddingBottom: 10,
   },
   empty: { marginTop: 60, alignItems: 'center' },
   emptyText: {

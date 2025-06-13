@@ -363,12 +363,10 @@ export default function AddMoreFriendsScreen({ navigation }) {
 
     return (
       <View style={styles.contactRow}>
-        {isKaleUser && (
-          <Image 
-            source={item.photoURL ? { uri: item.photoURL } : defaultProfilePhoto} 
-            style={styles.profileImage} 
-          />
-        )}
+        <Image 
+          source={isKaleUser && item.photoURL ? { uri: item.photoURL } : defaultProfilePhoto} 
+          style={styles.profileImage} 
+        />
 
         <View style={styles.contactInfo}>
             <Text style={styles.contactName} numberOfLines={1}>{displayName}</Text>
@@ -496,11 +494,13 @@ const styles = StyleSheet.create({
         fontSize: 20,
         fontFamily: 'PatrickHand-Regular',
         color: '#333',
+        marginTop: -6,
     },
     contactDetail: {
         fontSize: 16,
         fontFamily: 'PatrickHand-Regular',
         color: '#888',
+        marginTop: -3,
     },
     actionButton: {
         backgroundColor: '#8BA637',

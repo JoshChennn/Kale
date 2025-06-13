@@ -68,6 +68,7 @@ exports.requestToFollowUser = functions.https.onCall(async (data, context) => {
   await requestRef.set({
     requesterName: requesterData.displayName || "A user",
     requesterAvatar: requesterData.photoURL || null,
+    requesterUsername: requesterData.username || null,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
   });
 

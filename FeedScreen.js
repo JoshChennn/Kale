@@ -37,6 +37,7 @@ export default function FeedScreen({ navigation }) {
   const [followRequests, setFollowRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [postsCleared, setPostsCleared] = useState(false);
+  const [footerPosition, setFooterPosition] = useState(-250);
   const currentUser = auth.currentUser;
 
   // Ref for the SectionList to enable programmatic scrolling
@@ -251,6 +252,8 @@ export default function FeedScreen({ navigation }) {
   };
 
   const handlePressOut = () => {
+    // This function will now be called if the press is released OR if the finger moves off the button.
+    // The check for holdTimeout.current ensures this cleanup logic only runs once per press.
     if (holdTimeout.current) {
       clearTimeout(holdTimeout.current);
       holdTimeout.current = null;
@@ -278,6 +281,27 @@ export default function FeedScreen({ navigation }) {
           useNativeDriver: true,
         })
       ]).start();
+    }
+  };
+
+  const handleScroll = (event) => {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const scrollPosition = contentOffset.y;
+    const screenHeight = layoutMeasurement.height;
+    const contentHeight = contentSize.height;
+    
+    // Calculate how far from the bottom we are
+    const distanceFromBottom = contentHeight - (scrollPosition + screenHeight);
+    
+    // If posts are cleared, set height to -150
+    if (postsCleared) {
+      setFooterPosition(-150);
+    } else if (distanceFromBottom > 320) {
+      // If the footer is below the screen, set height to 0
+      setFooterPosition(-250);
+    } else {
+      // Otherwise, calculate inverse height
+      setFooterPosition(Math.max(-250, -distanceFromBottom));
     }
   };
 
@@ -405,16 +429,6 @@ export default function FeedScreen({ navigation }) {
     sections.push({ title: 'New Posts', data: posts, type: 'posts' });
   }
 
-  const ListEmptyComponent = (
-    <View style={styles.emptyContainer}>
-      <Text style={styles.emptyText}>Your feed is empty.</Text>
-      <Text style={styles.emptySubText}>Follow some people to see their posts!</Text>
-      <Pressable onPress={() => navigation.navigate('Search')} style={styles.findFriendsButton}>
-        <Text style={styles.findFriendsButtonText}>Find Friends</Text>
-      </Pressable>
-    </View>
-  );
-
   const ListFooterComponent = () => {
     if (posts.length === 0) {
       if (postsCleared) {
@@ -437,6 +451,9 @@ export default function FeedScreen({ navigation }) {
       return null;
     }
 
+    // Use the width from the stylesheet to calculate the button's radius
+    const buttonRadius = styles.buttonWrapper.width / 2;
+
     return (
       <Animated.View style={{
         opacity: postAndFooterOpacity,
@@ -445,32 +462,64 @@ export default function FeedScreen({ navigation }) {
         <View style={styles.footerContainer}>
           <Text style={styles.footerTitle}>You're all caught up.</Text>
           <Text style={styles.footerSubtitle}>Hold to clear posts</Text>
-          <Pressable onPressIn={handlePressIn} onPressOut={handlePressOut}>
-            <View style={styles.buttonWrapper}>
+          <View
+            onStartShouldSetResponder={(evt) => {
+              // Only respond to touches that start inside the circle
+              const { locationX, locationY } = evt.nativeEvent;
+              const distanceSquared = Math.pow(locationX - buttonRadius, 2) + Math.pow(locationY - buttonRadius, 2);
+              return distanceSquared <= Math.pow(buttonRadius, 2);
+            }}
+            onResponderGrant={handlePressIn}
+            onResponderRelease={handlePressOut}
+            onResponderTerminate={handlePressOut} // Handle gesture interruptions (e.g., scrolling)
+            onResponderMove={(evt) => {
+              // If the press has already been cancelled, do nothing
+              if (!holdTimeout.current) return;
+
+              const { locationX, locationY } = evt.nativeEvent;
+              const distanceSquared = Math.pow(locationX - buttonRadius, 2) + Math.pow(locationY - buttonRadius, 2);
+              
+              // If finger moves outside the circle, cancel the press
+              if (distanceSquared > Math.pow(buttonRadius, 2)) {
+                handlePressOut();
+              }
+            }}
+          >
+            <View style={styles.buttonWrapper} pointerEvents="none">
               <Animated.View style={[styles.outlineCircle, { opacity: outlineOpacityAnim }]} />
               <Animated.View style={[styles.clearButton, { transform: [{ scale: scaleAnim }] }]} />
-              <Text style={styles.clearButtonEmoji} pointerEvents="none">🥬</Text>
+              <Text style={styles.clearButtonEmoji}>🥬</Text>
             </View>
-          </Pressable>
+          </View>
         </View>
       </Animated.View>
     );
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#f2f2f2' }}>
+      <View
+        style={{
+          position: 'absolute',
+          left: 0, right: 0, bottom: 0,
+          height: footerPosition > -250 ? footerPosition + 150 : 0,
+          backgroundColor: '#8BA637',
+        }}
+      />
       <SectionList
-        ref={listRef} // Attach the ref to the SectionList
+        ref={listRef}
         sections={sections}
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
         renderSectionHeader={renderSectionHeader}
         ListHeaderComponent={<Text style={styles.header}>KALE</Text>}
         ListFooterComponent={ListFooterComponent}
-        ListEmptyComponent={ListEmptyComponent}
+        ListEmptyComponent={() => null}
         contentContainerStyle={styles.listContentContainer}
         stickySectionHeadersEnabled={true}
         showsVerticalScrollIndicator={false}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
       />
     </SafeAreaView>
   );
@@ -480,36 +529,6 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F2F2F2' },
   listContentContainer: {
     paddingBottom: 100,
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-    marginTop: 50,
-  },
-  emptyText: {
-    fontFamily: 'PatrickHand-Regular',
-    fontSize: 24,
-    color: '#53544D',
-  },
-  emptySubText: {
-    fontFamily: 'PatrickHand-Regular',
-    fontSize: 18,
-    color: '#b9b9b9',
-    marginTop: 8,
-    marginBottom: 24,
-  },
-  findFriendsButton: {
-    backgroundColor: '#8BA637',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 8,
-  },
-  findFriendsButtonText: {
-    fontFamily: 'PatrickHand-Regular',
-    fontSize: 18,
-    color: '#f2f2f2',
   },
   header: {
     fontSize: 40,
@@ -557,12 +576,14 @@ const styles = StyleSheet.create({
   requestName: {
     fontFamily: 'PatrickHand-Regular',
     fontSize: 20,
-    color: '#53544D',
+    color: '#333',
+    marginTop: -6,
   },
   requestUsername: {
     fontFamily: 'PatrickHand-Regular',
     fontSize: 16,
-    color: '#b9b9b9',
+    color: '#888',
+    marginTop: -3,
   },
   requestActions: {
     flexDirection: 'row',
@@ -667,43 +688,46 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#E9E9E9',
     marginTop: 20,
+    backgroundColor: '#8BA637',
   },
   footerTitle: {
     fontFamily: 'PatrickHand-Regular',
-    fontSize: 24,
-    color: '#53544D',
+    fontSize: 36,
+    color: '#FFFFFF',
   },
   footerSubtitle: {
     fontFamily: 'PatrickHand-Regular',
-    fontSize: 16,
-    color: '#b9b9b9',
+    fontSize: 28,
+    color: '#CADE81',
     marginTop: 4,
-    marginBottom: 40, // Increased to move button down
+    marginBottom: 40,
   },
   buttonWrapper: {
     width: 180,
     height: 180,
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: -50,
   },
   outlineCircle: {
     width: 180,
     height: 180,
     borderRadius: 90,
     borderWidth: 4,
-    borderColor: '#e6e6e6',
+    borderColor: '#CADE81',
     position: 'absolute',
   },
   clearButton: {
     width: 100,
     height: 100,
     borderRadius: 50,
-    backgroundColor: '#8BA637',
+    backgroundColor: '#FFFFFF',
     position: 'absolute',
   },
   clearButtonEmoji: {
     fontSize: 50,
     position: 'absolute',
+    color: '#8BA637',
   },
   clearedContainer: {
     paddingVertical: 80,
@@ -719,6 +743,6 @@ const styles = StyleSheet.create({
     fontFamily: 'PatrickHand-Regular',
     fontSize: 18,
     color: '#b9b9b9',
-    marginTop: 9,
+    marginTop: 8,
   },
 });
