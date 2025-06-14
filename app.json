@@ -13,7 +13,9 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": false,
+      "bundleIdentifier": "com.usekale.kale",
+      "buildNumber": "1.0.0"
     },
     "android": {
       "adaptiveIcon": {

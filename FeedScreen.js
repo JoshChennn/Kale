@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View,
   Text,
@@ -24,6 +25,7 @@ import {
   orderBy,
   limit,
   getDocs,
+  Timestamp
 } from 'firebase/firestore';
 import defaultProfilePhoto from './assets/default-profile-photo.png';
 import * as Haptics from 'expo-haptics'; // --- HAPTICS: Import the library
@@ -31,10 +33,22 @@ import * as Haptics from 'expo-haptics'; // --- HAPTICS: Import the library
 const { width: screenWidth } = Dimensions.get('window');
 const storySize = 70;
 
+// Helper function to format time ago
+const getTimeAgo = (timestamp) => {
+  if (!timestamp) return '';
+  const seconds = Math.floor((new Date() - timestamp.toDate()) / 1000);
+  
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
+  if (seconds < 604800) return `${Math.floor(seconds / 86400)}d`;
+  return `${Math.floor(seconds / 604800)}w`;
+};
+
 export default function FeedScreen({ navigation }) {
   const [posts, setPosts] = useState([]);
   const [stories, setStories] = useState([]);
-  const [followRequests, setFollowRequests] = useState([]);
+  const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [postsCleared, setPostsCleared] = useState(false);
   const [footerPosition, setFooterPosition] = useState(-250);
@@ -58,96 +72,124 @@ export default function FeedScreen({ navigation }) {
   useEffect(() => {
     if (!currentUser) return;
 
+    // This listener fetches all notifications (requests and acceptances)
+    const notificationsQuery = query(collection(db, 'users', currentUser.uid, 'followRequests'));
+    const unsubscribeNotifications = onSnapshot(notificationsQuery, (querySnapshot) => {
+      const newNotifications = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        // Default to 'follow_request' if the 'type' field is missing
+        type: doc.data().type || 'follow_request',
+      }));
+      setNotifications(newNotifications);
+    });
+
+    // Cleanup function: This is crucial for logging in/out
+    return () => unsubscribeNotifications();
+  }, [currentUser]);
+
+
+  // --- DATA FETCHING: Posts & Stories ---
+  useEffect(() => {
+    if (!currentUser) return;
+    
+    setLoading(true);
+    let unsubscribePosts = () => {}; // Holder for the nested listener
+
     const userFollowingRef = collection(db, 'following', currentUser.uid, 'userFollowing');
     const unsubscribeFollowing = onSnapshot(userFollowingRef, (followingSnap) => {
-      const following = followingSnap.docs.map(doc => doc.id);
-      const usersToQuery = [...new Set([currentUser.uid, ...following])];
+      // Important: Unsubscribe from the previous posts listener before creating a new one
+      unsubscribePosts();
 
-      if (usersToQuery.length === 0) {
+      const followingIds = followingSnap.docs.map(doc => doc.id);
+
+      // --- POSTS LOGIC: Fetch posts only from people the user is following
+      if (followingIds.length > 0) {
+        const limitedFollowingIds = followingIds.slice(0, 30);
+
+        const postsQuery = query(
+          collection(db, 'posts'),
+          where('userId', 'in', limitedFollowingIds), // Only query for followed users
+          orderBy('createdAt', 'desc'),
+          limit(25)
+        );
+        
+        // Assign the new listener to our holder variable
+        unsubscribePosts = onSnapshot(postsQuery, (querySnapshot) => {
+          const fetchedPosts = querySnapshot.docs.map(doc => {
+            const postData = doc.data();
+            return {
+              id: doc.id,
+              ...postData,
+              user: { id: postData.userId, name: postData.userName, avatar: postData.userAvatar },
+              date: postData.createdAt?.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) || 'someday',
+            };
+          });
+
+          if (fetchedPosts.length > 0) {
+            setPostsCleared(false);
+            clearAnimation.setValue(0);
+            clearedOpacity.setValue(0);
+          }
+          
+          setPosts(fetchedPosts);
+          setLoading(false); // Stop loading once posts are processed
+        });
+      } else {
+        // If user follows no one, set posts to empty and stop loading
         setPosts([]);
         setLoading(false);
-        return;
       }
+
+      // --- STORIES LOGIC: Fetch stories from followed users AND the current user
+      const storyUserIds = [...new Set([currentUser.uid, ...followingIds])];
       
-      const limitedUsersToQuery = usersToQuery.slice(0, 30);
-
-      const postsQuery = query(
-        collection(db, 'posts'),
-        where('userId', 'in', limitedUsersToQuery),
-        orderBy('createdAt', 'desc'),
-        limit(25)
-      );
-
-      const unsubscribePosts = onSnapshot(postsQuery, (querySnapshot) => {
-        const fetchedPosts = querySnapshot.docs.map(doc => {
-          const postData = doc.data();
-          return {
-            id: doc.id,
-            ...postData,
-            user: { id: postData.userId, name: postData.userName, avatar: postData.userAvatar },
-            date: postData.createdAt?.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) || 'someday',
-          };
-        });
-
-        if (fetchedPosts.length > 0) {
-          setPostsCleared(false); // Reset if new posts are loaded
-          // Also reset animations if posts come in
-          clearAnimation.setValue(0);
-          clearedOpacity.setValue(0);
-        }
-        
-        setPosts(fetchedPosts);
-        setLoading(false);
-      });
-
       const fetchStories = async () => {
-        const storyUsersQuery = query(collection(db, 'users'), where('__name__', 'in', limitedUsersToQuery));
-        const storyUsersSnapshot = await getDocs(storyUsersQuery);
-        const userMap = new Map(storyUsersSnapshot.docs.map(d => [d.id, d.data()]));
+        if (storyUserIds.length === 0) {
+            setStories([]);
+            return;
+        }
 
-        const storyPromises = limitedUsersToQuery.map(uid => getDocs(query(collection(db, 'users', uid, 'stories'), limit(5))));
-        const storySnapshots = await Promise.all(storyPromises);
+        try {
+            const limitedStoryUserIds = storyUserIds.slice(0, 30);
+            const storyUsersQuery = query(collection(db, 'users'), where('__name__', 'in', limitedStoryUserIds));
+            const storyUsersSnapshot = await getDocs(storyUsersQuery);
+            const userMap = new Map(storyUsersSnapshot.docs.map(d => [d.id, d.data()]));
 
-        const storyEntries = storySnapshots.map((snapshot, index) => {
-          if (!snapshot.empty) {
-            const userId = limitedUsersToQuery[index];
-            const user = userMap.get(userId);
-            if (user) {
-              return {
-                id: userId,
-                name: user.displayName, 
-                avatar: user.photoURL, 
-                uriList: snapshot.docs.map(d => ({id: d.id, ...d.data()}))
-              };
-            }
-          }
-          return null;
-        }).filter(Boolean);
-        setStories(storyEntries);
+            const storyPromises = limitedStoryUserIds.map(uid => getDocs(query(collection(db, 'users', uid, 'stories'), limit(5))));
+            const storySnapshots = await Promise.all(storyPromises);
+
+            const storyEntries = storySnapshots.map((snapshot, index) => {
+              if (!snapshot.empty) {
+                const userId = limitedStoryUserIds[index];
+                const user = userMap.get(userId);
+                if (user) {
+                  return {
+                    id: userId,
+                    name: user.displayName, 
+                    avatar: user.photoURL, 
+                    uriList: snapshot.docs.map(d => ({id: d.id, ...d.data()}))
+                  };
+                }
+              }
+              return null;
+            }).filter(Boolean);
+            setStories(storyEntries);
+        } catch (error) {
+            console.error("Error fetching stories: ", error);
+        }
       }
       fetchStories();
       
-      return () => unsubscribePosts();
     });
 
-    return () => unsubscribeFollowing();
+    // Cleanup function: unsubscribes from both listeners when the component unmounts
+    return () => {
+      unsubscribeFollowing();
+      unsubscribePosts();
+    };
   }, [currentUser]);
   
-  useEffect(() => {
-    if (!currentUser) return;
-
-    const requestsQuery = query(collection(db, 'users', currentUser.uid, 'followRequests'));
-    const unsubscribeRequests = onSnapshot(requestsQuery, (querySnapshot) => {
-      const newRequests = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-      setFollowRequests(newRequests);
-    });
-
-    return () => unsubscribeRequests();
-  }, [currentUser]);
-
   // --- ANIMATION EFFECT ---
   useEffect(() => {
     if (postsCleared) {
@@ -164,7 +206,7 @@ export default function FeedScreen({ navigation }) {
 
   // --- HANDLERS ---
   const onAcceptRequest = async (requesterId) => {
-    setFollowRequests(prev => prev.filter(req => req.id !== requesterId));
+    setNotifications(prev => prev.filter(req => req.id !== requesterId));
     try {
       await handleFollowRequest({ requestingUserId: requesterId, action: 'accept' });
     } catch (error) {
@@ -174,7 +216,7 @@ export default function FeedScreen({ navigation }) {
   };
 
   const onIgnoreRequest = async (requesterId) => {
-    setFollowRequests(prev => prev.filter(req => req.id !== requesterId));
+    setNotifications(prev => prev.filter(req => req.id !== requesterId));
     try {
       await handleFollowRequest({ requestingUserId: requesterId, action: 'ignore' });
     } catch (error) {
@@ -364,32 +406,58 @@ export default function FeedScreen({ navigation }) {
     </Animated.View>
   );
 
-  const renderRequest = ({ item: request }) => (
-    <View style={styles.requestCard}>
-      <Pressable 
-        style={styles.requestUserInfo} 
-        onPress={() => navigation.navigate('ProfileModal', { userId: request.id })}
-      >
-        <Image 
-          source={request.requesterAvatar ? { uri: request.requesterAvatar } : defaultProfilePhoto}
-          style={styles.requestAvatar} 
-        />
-        <View style={styles.requestNameContainer}>
-          <Text style={styles.requestName} numberOfLines={1}>{request.requesterName || 'A user'}</Text>
-          {request.requesterUsername && <Text style={styles.requestUsername} numberOfLines={1}>@{request.requesterUsername}</Text>}
-        </View>
-      </Pressable>
-
-      <View style={styles.requestActions}>
-        <Pressable style={styles.acceptButton} onPress={() => onAcceptRequest(request.id)}>
-          <Text style={styles.acceptButtonText}>Accept</Text>
+  const renderNotification = ({ item: notification }) => {
+    let name, profileId, avatarUri, timeAgo;
+    const hasActions = notification.type === 'follow_request';
+  
+    if (notification.type === 'follow_request') {
+      name = notification.requesterName || 'A user';
+      profileId = notification.id;
+      avatarUri = notification.requesterAvatar;
+      timeAgo = getTimeAgo(notification.createdAt);
+    } else if (notification.type === 'follow_accepted') {
+      name = notification.acceptorName || 'A user';
+      profileId = notification.acceptorId;
+      avatarUri = notification.acceptorAvatar;
+      timeAgo = getTimeAgo(notification.createdAt);
+    } else {
+      return null;
+    }
+  
+    return (
+      <View style={styles.requestCard}>
+        <Pressable
+          style={styles.requestUserInfo}
+          onPress={() => navigation.navigate('ProfileModal', { userId: profileId })}
+        >
+          <Image
+            source={avatarUri ? { uri: avatarUri } : defaultProfilePhoto}
+            style={styles.requestAvatar}
+          />
+          <View style={styles.requestTextContainer}>
+            <Text style={styles.requestText}>
+              <Text style={styles.requestName}>{name}</Text>
+              {notification.type === 'follow_request' 
+                ? ' requested to follow you.'
+                : ' accepted your follow request.'}
+              <Text style={styles.requestTime}> {timeAgo}</Text>
+            </Text>
+          </View>
         </Pressable>
-        <Pressable style={styles.ignoreButton} onPress={() => onIgnoreRequest(request.id)}>
-          <Text style={styles.ignoreButtonText}>Ignore</Text>
-        </Pressable>
+  
+        {hasActions && (
+          <View style={styles.requestActions}>
+            <Pressable style={styles.acceptButton} onPress={() => onAcceptRequest(notification.id)}>
+              <Text style={styles.acceptButtonText}>Accept</Text>
+            </Pressable>
+            <Pressable style={styles.ignoreButton} onPress={() => onIgnoreRequest(notification.id)}>
+              <Text style={styles.ignoreButtonText}>Ignore</Text>
+            </Pressable>
+          </View>
+        )}
       </View>
-    </View>
-  );
+    );
+  };
 
   const renderStories = ({ item }) => (
     <View style={styles.storiesContainer}>
@@ -406,7 +474,7 @@ export default function FeedScreen({ navigation }) {
 
   const renderItem = ({ item, section }) => {
     switch (section.type) {
-      case 'requests': return renderRequest({ item });
+      case 'notifications': return renderNotification({ item });
       case 'stories': return renderStories({ item });
       case 'posts': return renderPost({ item });
       default: return null;
@@ -419,8 +487,8 @@ export default function FeedScreen({ navigation }) {
   };
   
   const sections = [];
-  if (followRequests.length > 0) {
-    sections.push({ title: 'Follow Requests', data: followRequests, type: 'requests' });
+  if (notifications.length > 0) {
+    sections.push({ title: 'Notifications', data: notifications, type: 'notifications' });
   }
   if (stories.length > 0) {
     sections.push({ title: 'Stories', data: [{ id: 'story-bar', storyData: stories }], type: 'stories' });
@@ -461,7 +529,7 @@ export default function FeedScreen({ navigation }) {
       }}>
         <View style={styles.footerContainer}>
           <Text style={styles.footerTitle}>You're all caught up.</Text>
-          <Text style={styles.footerSubtitle}>Hold to clear posts</Text>
+          <Text style={styles.footerSubtitle}>Hold to clear posts:</Text>
           <View
             onStartShouldSetResponder={(evt) => {
               // Only respond to touches that start inside the circle
@@ -525,6 +593,7 @@ export default function FeedScreen({ navigation }) {
   );
 }
 
+// Styles remain the same
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F2F2F2' },
   listContentContainer: {
@@ -569,21 +638,24 @@ const styles = StyleSheet.create({
     marginRight: 12,
     backgroundColor: '#e6e6e6',
   },
-  requestNameContainer: {
+  requestTextContainer: {
     flex: 1,
     justifyContent: 'center',
+    marginLeft: 4,
+    paddingRight: 20,
+    maxWidth: '70%',
   },
-  requestName: {
-    fontFamily: 'PatrickHand-Regular',
-    fontSize: 20,
-    color: '#333',
-    marginTop: -6,
-  },
-  requestUsername: {
+  requestText: {
     fontFamily: 'PatrickHand-Regular',
     fontSize: 16,
-    color: '#888',
-    marginTop: -3,
+    color: '#333',
+    flexShrink: 1,
+  },
+  requestName: {
+    color: '#333',
+  },
+  requestTime: {
+    color: '#b9b9b9',
   },
   requestActions: {
     flexDirection: 'row',

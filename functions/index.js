@@ -117,28 +117,52 @@ exports.handleFollowRequest = functions.https.onCall(async (data, context) => {
         throw new functions.https.HttpsError("invalid-argument", "Invalid action.");
     }
 
-    const requestRef = db.collection("users").doc(currentUserId)
-                         .collection("followRequests").doc(requestingUserId);
+    // --- Start of Fix ---
     
     if (action === 'accept') {
         const batch = db.batch();
 
-        const followingRef = db.collection("following").doc(requestingUserId)
-                               .collection("userFollowing").doc(currentUserId);
+        const currentUserDoc = await db.collection("users").doc(currentUserId).get();
+        if (!currentUserDoc.exists) {
+            throw new functions.https.HttpsError("not-found", "Current user profile not found.");
+        }
+        const currentUserData = currentUserDoc.data();
+
+        // 1. Create following/follower relationship
+        const followingRef = db.collection("following").doc(requestingUserId).collection("userFollowing").doc(currentUserId);
         batch.set(followingRef, { createdAt: admin.firestore.FieldValue.serverTimestamp() });
         
-        const followerRef = db.collection("followers").doc(currentUserId)
-                              .collection("userFollowers").doc(requestingUserId);
+        const followerRef = db.collection("followers").doc(currentUserId).collection("userFollowers").doc(requestingUserId);
         batch.set(followerRef, { createdAt: admin.firestore.FieldValue.serverTimestamp() });
 
-        batch.delete(requestRef);
+        // 2. Create a notification for the requester
+        const notificationRef = db.collection("users").doc(requestingUserId).collection("followRequests").doc(currentUserId);
+        batch.set(notificationRef, {
+            type: 'follow_accepted',
+            acceptorName: currentUserData.displayName || "A user",
+            acceptorAvatar: currentUserData.photoURL || null,
+            acceptorId: currentUserId,
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        // 3. Delete the original request from the current user's notifications
+        const requestDocRef = db.collection("users").doc(currentUserId)
+                              .collection("followRequests").doc(requestingUserId);
+        batch.delete(requestDocRef);
 
         await batch.commit();
         return { success: true, message: "Request accepted." };
     } else { // action === 'ignore'
-        await requestRef.delete();
+        // For 'ignore', we are simply deleting the request document.
+        // The request document lives in the CURRENT user's subcollection.
+        // The ID of the document is the ID of the user who made the request.
+        const requestDocRef = db.collection("users").doc(currentUserId)
+                                  .collection("followRequests").doc(requestingUserId);
+        
+        await requestDocRef.delete();
         return { success: true, message: "Request ignored." };
     }
+    // --- End of Fix ---
 });
 
 /**

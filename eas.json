@@ -1,0 +1,4 @@
+{
+    "preview": { "distribution": "internal", "channel": "preview" },
+    "release": { "distribution": "app-store", "channel": "prod" }
+}
