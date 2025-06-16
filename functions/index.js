@@ -9,7 +9,6 @@ const db = admin.firestore();
 /**
  * This function runs when a new user is created via Firebase Auth.
  * It creates a corresponding user document in Firestore.
- * NOTE: We will keep this function as it is useful for user setup.
  */
 exports.onUserCreate = functions.auth.user().onCreate(async (user) => {
   const { uid, email, displayName, photoURL } = user;
@@ -30,7 +29,60 @@ exports.onUserCreate = functions.auth.user().onCreate(async (user) => {
     phoneNumber: user.phoneNumber || null,
     onboardingCompleted: false, // Default to false
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    // Set the initial cleared timestamp to now, so new users don't see old posts
+    lastClearedTimestamp: admin.firestore.FieldValue.serverTimestamp(),
   });
+});
+
+/**
+ * Updates the user's lastClearedTimestamp to the current time.
+ * This is called when the user holds the button to clear their feed.
+ */
+exports.clearPosts = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    console.error("Clear posts called without authentication");
+    throw new functions.https.HttpsError("unauthenticated", "You must be logged in to clear posts.");
+  }
+  
+  const userId = context.auth.uid;
+  const userRef = db.collection("users").doc(userId);
+
+  try {
+    // First check if the user document exists
+    const userDoc = await userRef.get();
+    
+    if (!userDoc.exists) {
+      console.log(`Creating missing user document for userId: ${userId}`);
+      // Create a basic user document if it doesn't exist
+      await userRef.set({
+        uid: userId,
+        displayName: context.auth.token.name || 'New User',
+        username: (context.auth.token.email || 'user').split('@')[0] + Math.floor(Math.random() * 900 + 100),
+        photoURL: context.auth.token.picture || null,
+        bio: 'Hi, I\'m new here!',
+        onboardingCompleted: false,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        lastClearedTimestamp: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    } else {
+      // Update the timestamp if document exists
+      await userRef.set({
+        lastClearedTimestamp: admin.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+    }
+
+    console.log(`Successfully cleared posts for user: ${userId}`);
+    return { success: true, message: "Posts cleared successfully." };
+  } catch (error) {
+    console.error("Error in clearPosts function:", error);
+    
+    // Provide more specific error messages based on the error type
+    if (error.code === 'permission-denied') {
+      throw new functions.https.HttpsError("permission-denied", "You don't have permission to clear posts.");
+    } else {
+      throw new functions.https.HttpsError("internal", "Could not update your feed status. Please try again.");
+    }
+  }
 });
 
 
@@ -116,8 +168,6 @@ exports.handleFollowRequest = functions.https.onCall(async (data, context) => {
     if (action !== 'accept' && action !== 'ignore') {
         throw new functions.https.HttpsError("invalid-argument", "Invalid action.");
     }
-
-    // --- Start of Fix ---
     
     if (action === 'accept') {
         const batch = db.batch();
@@ -153,16 +203,12 @@ exports.handleFollowRequest = functions.https.onCall(async (data, context) => {
         await batch.commit();
         return { success: true, message: "Request accepted." };
     } else { // action === 'ignore'
-        // For 'ignore', we are simply deleting the request document.
-        // The request document lives in the CURRENT user's subcollection.
-        // The ID of the document is the ID of the user who made the request.
         const requestDocRef = db.collection("users").doc(currentUserId)
                                   .collection("followRequests").doc(requestingUserId);
         
         await requestDocRef.delete();
         return { success: true, message: "Request ignored." };
     }
-    // --- End of Fix ---
 });
 
 /**

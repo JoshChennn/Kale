@@ -14,6 +14,7 @@ import {
   Alert,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { Video } from 'expo-video';
 import { db, storage, auth } from './firebaseConfig'; // Import Firebase config
 import { addDoc, collection, serverTimestamp, doc, getDoc } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
@@ -25,6 +26,7 @@ export default function CreatePostDetailsScreen({ route, navigation }) {
   const [isUploading, setIsUploading] = useState(false);
   const [currentUserData, setCurrentUserData] = useState(null);
   const currentUser = auth.currentUser;
+  const [mediaType, setMediaType] = useState('image'); // 'image' or 'video'
 
   useEffect(() => {
     if (currentUser) {
@@ -42,8 +44,20 @@ export default function CreatePostDetailsScreen({ route, navigation }) {
     }
   }, [currentUser]);
 
-  // Function to upload a single image to Firebase Storage
-  const uploadImageAsync = async (uri) => {
+  useEffect(() => {
+    // Determine if the selected file is a video
+    if (photos && photos.length > 0) {
+      const uri = photos[0];
+      if (uri.toLowerCase().endsWith('.mp4') || uri.toLowerCase().endsWith('.mov')) {
+        setMediaType('video');
+      } else {
+        setMediaType('image');
+      }
+    }
+  }, [photos]);
+
+  // Function to upload a single file to Firebase Storage
+  const uploadFileAsync = async (uri) => {
     const blob = await new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.onload = function () {
@@ -86,7 +100,7 @@ export default function CreatePostDetailsScreen({ route, navigation }) {
 
   const handlePost = async () => {
     if (!photos || photos.length === 0) {
-      Alert.alert("No photo", "Please select a photo to post.");
+      Alert.alert("No media", "Please select a photo or video to post.");
       return;
     }
     if (!currentUser || !currentUserData) {
@@ -96,20 +110,20 @@ export default function CreatePostDetailsScreen({ route, navigation }) {
 
     setIsUploading(true);
     try {
-      // For now, we only handle the first selected photo.
-      const imageUriToUpload = photos[0];
-      const uploadedImageURL = await uploadImageAsync(imageUriToUpload);
+      const fileUriToUpload = photos[0];
+      const uploadedFileURL = await uploadFileAsync(fileUriToUpload);
 
       // Add post to Firestore with correct user data fields
       await addDoc(collection(db, "posts"), {
         userId: currentUser.uid,
-        userName: currentUserData.displayName, // Corrected from .name
-        userAvatar: currentUserData.photoURL,   // Corrected from .avatar
-        imageUri: uploadedImageURL,
+        userName: currentUserData.displayName,
+        userAvatar: currentUserData.photoURL,
+        mediaUri: uploadedFileURL,
+        mediaType: mediaType,
         caption: caption.trim(),
         tags: tags.split(' ').filter(t => t.startsWith('@')),
         commentsCount: 0,
-        createdAt: serverTimestamp(), // Use server timestamp
+        createdAt: serverTimestamp(),
       });
 
       console.log('Post created successfully!');
@@ -152,11 +166,21 @@ export default function CreatePostDetailsScreen({ route, navigation }) {
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
           <View style={styles.content}>
             {photos && photos.length > 0 ? (
-              <Image source={{ uri: photos[0] }} style={styles.preview} />
+              mediaType === 'video' ? (
+                <Video
+                  source={{ uri: photos[0] }}
+                  style={styles.preview}
+                  controls
+                  resizeMode="contain"
+                  loop
+                />
+              ) : (
+                <Image source={{ uri: photos[0] }} style={styles.preview} />
+              )
             ) : (
               <View style={[styles.preview, styles.previewPlaceholder]}>
                 <MaterialIcons name="image" size={80} color="#ccc" />
-                <Text style={styles.previewPlaceholderText}>No photo selected</Text>
+                <Text style={styles.previewPlaceholderText}>No media selected</Text>
               </View>
             )}
             <TextInput
@@ -184,7 +208,7 @@ export default function CreatePostDetailsScreen({ route, navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f2f2f2' },
+  container: { flex: 1, backgroundColor: '#FFFFFF' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -194,6 +218,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderColor: '#ddd',
     height: Platform.OS === 'ios' ? 56 : 60,
+    backgroundColor: '#FFFFFF',
   },
   title: { fontSize: 20, fontFamily: 'PatrickHand-Regular', color: '#53544D' },
   post: { fontSize: 18, color: '#8BA637', fontFamily: 'PatrickHand-Regular' },

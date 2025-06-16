@@ -165,7 +165,7 @@ export default function EditProfileScreen({ navigation }) {
 
     const handlePickImage = async () => {
         const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            mediaTypes: 'images',
             allowsEditing: true,
             aspect: [1, 1],
             quality: 0.5,
@@ -346,13 +346,13 @@ export default function EditProfileScreen({ navigation }) {
 const styles = StyleSheet.create({
     safeArea: {
         flex: 1,
-        backgroundColor: '#F2F2F2',
+        backgroundColor: '#FFFFFF',
     },
     loadingContainer: {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        backgroundColor: '#F2F2F2',
+        backgroundColor: '#FFFFFF',
     },
     header: {
         flexDirection: 'row',
@@ -372,6 +372,9 @@ const styles = StyleSheet.create({
         fontFamily: 'PatrickHand-Regular',
         fontSize: 18,
         color: '#53544D',
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 5,
     },
     headerButtonPrimary: {
         color: '#8BA637',
@@ -390,6 +393,8 @@ const styles = StyleSheet.create({
         borderRadius: 50,
         backgroundColor: '#e6e6e6',
         marginBottom: 12,
+        borderWidth: 0.5,
+        borderColor: '#b9b9b9',
     },
     changePhotoText: {
         fontFamily: 'PatrickHand-Regular',

@@ -25,10 +25,15 @@ import {
   orderBy,
   limit,
   getDocs,
-  Timestamp
+  Timestamp,
+  runTransaction,
+  increment,
+  getDoc,
 } from 'firebase/firestore';
 import defaultProfilePhoto from './assets/default-profile-photo.png';
 import * as Haptics from 'expo-haptics'; // --- HAPTICS: Import the library
+import { Ionicons } from '@expo/vector-icons';
+import { MaterialIcons } from '@expo/vector-icons';
 
 const { width: screenWidth } = Dimensions.get('window');
 const storySize = 70;
@@ -52,6 +57,8 @@ export default function FeedScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [postsCleared, setPostsCleared] = useState(false);
   const [footerPosition, setFooterPosition] = useState(-250);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [selectedFilter, setSelectedFilter] = useState('Everyone');
   const currentUser = auth.currentUser;
 
   // Ref for the SectionList to enable programmatic scrolling
@@ -64,6 +71,10 @@ export default function FeedScreen({ navigation }) {
   const outlineOpacityAnim = useRef(new Animated.Value(0)).current; // For outline fade-in
   const holdTimeout = useRef(null);
   const hapticInterval = useRef(null); // Add reference for haptic interval
+  const heartBounceAnim = useRef(new Animated.Value(1.1)).current; // For heart bounce animation, starting at 1.1x
+
+  // Remove the single kaleEmojiAnim
+  const lastTap = useRef(0);
 
   const handleFollowRequest = httpsCallable(functions, 'handleFollowRequest');
 
@@ -115,14 +126,33 @@ export default function FeedScreen({ navigation }) {
         );
         
         // Assign the new listener to our holder variable
-        unsubscribePosts = onSnapshot(postsQuery, (querySnapshot) => {
-          const fetchedPosts = querySnapshot.docs.map(doc => {
+        unsubscribePosts = onSnapshot(postsQuery, async (querySnapshot) => {
+          const postDocs = querySnapshot.docs;
+          if (postDocs.length === 0) {
+            setPosts([]);
+            setLoading(false);
+            return;
+          }
+
+          const postIds = postDocs.map(d => d.id);
+          const likeCheckPromises = postIds.map(id =>
+            getDoc(doc(db, 'posts', id, 'likes', currentUser.uid))
+          );
+          const likeDocs = await Promise.all(likeCheckPromises);
+          const likeStatusMap = new Map();
+          likeDocs.forEach((likeDoc, index) => {
+            likeStatusMap.set(postIds[index], likeDoc.exists());
+          });
+
+          const fetchedPosts = postDocs.map(doc => {
             const postData = doc.data();
             return {
               id: doc.id,
               ...postData,
               user: { id: postData.userId, name: postData.userName, avatar: postData.userAvatar },
-              date: postData.createdAt?.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) || 'someday',
+              date: getTimeAgo(postData.createdAt),
+              likedByCurrentUser: likeStatusMap.get(doc.id) || false,
+              likesCount: postData.likesCount || 0,
             };
           });
 
@@ -222,6 +252,81 @@ export default function FeedScreen({ navigation }) {
     } catch (error) {
       console.error("Error ignoring request:", error);
       Alert.alert("Error", "Could not ignore request. Please try again.");
+    }
+  };
+
+  const handleLikeToggle = async (postId, currentlyLiked) => {
+    if (!currentUser) return;
+  
+    // Optimistic UI update
+    setPosts(currentPosts =>
+      currentPosts.map(p => {
+        if (p.id === postId) {
+          return {
+            ...p,
+            likedByCurrentUser: !currentlyLiked,
+            likesCount: currentlyLiked ? p.likesCount - 1 : p.likesCount + 1,
+          };
+        }
+        return p;
+      })
+    );
+  
+    // Haptic feedback for a satisfying "like"
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  
+    // Heart bounce animation
+    if (!currentlyLiked) {
+      Animated.spring(heartBounceAnim, {
+        toValue: 1.3,
+        friction: 5,
+        tension: 100,
+        useNativeDriver: true,
+      }).start(() => {
+        Animated.spring(heartBounceAnim, {
+          toValue: 1.1,
+          friction: 5,
+          tension: 100,
+          useNativeDriver: true,
+        }).start();
+      });
+    }
+  
+    // Firebase update
+    const postRef = doc(db, 'posts', postId);
+    const likeRef = doc(postRef, 'likes', currentUser.uid);
+  
+    try {
+      await runTransaction(db, async (transaction) => {
+        const likeDoc = await transaction.get(likeRef);
+  
+        if (likeDoc.exists()) {
+          // User is unliking the post
+          transaction.delete(likeRef);
+          transaction.update(postRef, { likesCount: increment(-1) });
+        } else {
+          // User is liking the post
+          transaction.set(likeRef, { createdAt: Timestamp.now(), userId: currentUser.uid });
+          transaction.update(postRef, { likesCount: increment(1) });
+        }
+      });
+    } catch (error) {
+      console.error("Error toggling like:", error);
+      // Revert optimistic update on error
+      setPosts(currentPosts =>
+        currentPosts.map(p => {
+          if (p.id === postId) {
+            // Revert to original state before the tap
+            return {
+              ...p,
+              likedByCurrentUser: currentlyLiked,
+              likesCount: currentlyLiked ? p.likesCount + 1 : p.likesCount - 1,
+            };
+          }
+          return p;
+        })
+      );
+      Alert.alert("Error", "Couldn't like the post. Please try again.");
     }
   };
 
@@ -373,38 +478,122 @@ export default function FeedScreen({ navigation }) {
 
 
   // --- RENDER COMPONENTS ---
-  const renderPost = ({ item: post }) => (
-    <Animated.View style={{
-      opacity: postAndFooterOpacity,
-      transform: [{ translateY: postTranslateY }]
-    }}>
-      <View style={styles.postCard}>
-        <Pressable
-          style={styles.postHeader}
-          onPress={() => {
-            if (post.user.id === currentUser.uid) {
-              navigation.navigate('Profile', { userId: currentUser.uid });
-            } else {
-              navigation.navigate('ProfileModal', { userId: post.user.id });
-            }
-          }}
-        >
-          <Image source={{ uri: post.user.avatar }} style={styles.avatar} />
-          <View style={styles.postHeaderTextRow}>
-            <Text style={styles.postUsername}>{post.user.name}</Text>
-            <Text style={styles.postDate}>{post.date}</Text>
+  const renderPost = ({ item: post }) => {
+    // Create a unique animated value for this post
+    const heartAnim = useRef(new Animated.Value(0)).current;
+
+    const handleDoubleTap = (event) => {
+      const now = Date.now();
+      const DOUBLE_TAP_DELAY = 300;
+      
+      if (now - lastTap.current < DOUBLE_TAP_DELAY) {
+        // Reset animation value
+        heartAnim.setValue(0);
+        
+        // Start animation
+        Animated.sequence([
+          Animated.timing(heartAnim, {
+            toValue: 1,
+            duration: 400, // Faster fade in
+            useNativeDriver: true,
+          }),
+          Animated.timing(heartAnim, {
+            toValue: 0,
+            duration: 400, // Faster fade out
+            useNativeDriver: true,
+          })
+        ]).start();
+
+        // Like the post if not already liked
+        if (!post.likedByCurrentUser) {
+          handleLikeToggle(post.id, post.likedByCurrentUser);
+        }
+      }
+      lastTap.current = now;
+    };
+
+    return (
+      <Animated.View style={{
+        opacity: postAndFooterOpacity,
+        transform: [{ translateY: postTranslateY }]
+      }}>
+        <View style={styles.postCard}>
+          <Pressable
+            style={styles.postHeader}
+            onPress={() => {
+              if (post.user.id === currentUser.uid) {
+                navigation.navigate('Profile', { userId: currentUser.uid });
+              } else {
+                navigation.navigate('ProfileModal', { userId: post.user.id });
+              }
+            }}
+          >
+            <Image source={{ uri: post.user.avatar }} style={styles.avatar} />
+            <View style={styles.postHeaderTextRow}>
+              <Text style={styles.postUsername}>{post.user.name}</Text>
+              <Text style={styles.postDate}>{post.date}</Text>
+            </View>
+          </Pressable>
+          <View style={styles.postImageContainer}>
+            <Pressable onPress={handleDoubleTap}>
+              <Image source={{ uri: post.imageUri }} style={styles.postImage} />
+            </Pressable>
+            <Animated.View
+              style={[
+                styles.heartContainer,
+                {
+                  opacity: heartAnim,
+                  transform: [
+                    {
+                      scale: heartAnim.interpolate({
+                        inputRange: [0, 0.5, 1],
+                        outputRange: [0.5, 1.2, 1],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            >
+              <Ionicons name="heart" size={100} color="#8BA637" />
+            </Animated.View>
           </View>
-        </Pressable>
-        <Image source={{ uri: post.imageUri }} style={styles.postImage} />
-        <Pressable
-          style={styles.commentsBtn}
-          onPress={() => navigation.navigate('PostDetail', { post })}
-        >
-          <Text style={styles.commentsText}>View comments ({post.commentsCount || 0})</Text>
-        </Pressable>
-      </View>
-    </Animated.View>
-  );
+          <View style={styles.actionButtonsContainer}>
+            <Pressable 
+              style={styles.actionButton}
+              onPress={() => handleLikeToggle(post.id, post.likedByCurrentUser)}
+            >
+              <Animated.View style={{ transform: [{ scale: heartBounceAnim }] }}>
+                <Ionicons 
+                    name={post.likedByCurrentUser ? "heart" : "heart-outline"} 
+                    size={28} 
+                    color={post.likedByCurrentUser ? "#8BA637" : "#333"}
+                />
+              </Animated.View>
+            </Pressable>
+            <Pressable 
+              style={styles.actionButton}
+              onPress={() => navigation.navigate('PostDetail', { post })}
+            >
+              <Ionicons name="chatbubble-outline" size={28} color="#333" />
+            </Pressable>
+          </View>
+          {post.caption && (
+            <View style={styles.captionContainer}>
+               <Text style={styles.captionText}>
+                  {post.caption}
+              </Text>
+            </View>
+          )}
+          <Pressable
+            style={styles.commentsBtn}
+            onPress={() => navigation.navigate('PostDetail', { post })}
+          >
+            <Text style={styles.commentsText}>View comments ({post.commentsCount || 0})</Text>
+          </Pressable>
+        </View>
+      </Animated.View>
+    );
+  };
 
   const renderNotification = ({ item: notification }) => {
     let name, profileId, avatarUri, timeAgo;
@@ -483,7 +672,62 @@ export default function FeedScreen({ navigation }) {
 
   const renderSectionHeader = ({ section: { title, type } }) => {
     if (type === 'stories' || (type === 'posts' && posts.length === 0)) return null;
-    return <Text style={styles.sectionHeader}>{title}</Text>;
+    
+    if (type === 'posts') {
+      return (
+        <View style={styles.sectionHeaderContainer}>
+          <Text style={styles.sectionHeader}>{title}</Text>
+          <View style={styles.filterContainer}>
+            <Pressable 
+              style={styles.filterButton}
+              onPress={() => setShowDropdown(!showDropdown)}
+            >
+              <Text style={styles.filterText}>{selectedFilter}</Text>
+              <MaterialIcons 
+                name={showDropdown ? "keyboard-arrow-up" : "keyboard-arrow-down"} 
+                size={24} 
+                color="#8BA637" 
+              />
+            </Pressable>
+            {showDropdown && (
+              <View style={styles.dropdownContainer}>
+                <Pressable 
+                  style={styles.dropdownItem}
+                  onPress={() => {
+                    setSelectedFilter('Best Friends');
+                    setShowDropdown(false);
+                  }}
+                >
+                  <Text style={[
+                    styles.dropdownText,
+                    selectedFilter === 'Best Friends' && styles.selectedFilter
+                  ]}>Best Friends</Text>
+                </Pressable>
+                <Pressable 
+                  style={styles.dropdownItem}
+                  onPress={() => {
+                    setSelectedFilter('Everyone');
+                    setShowDropdown(false);
+                  }}
+                >
+                  <Text style={[
+                    styles.dropdownText,
+                    selectedFilter === 'Everyone' && styles.selectedFilter
+                  ]}>Everyone</Text>
+                </Pressable>
+              </View>
+            )}
+          </View>
+        </View>
+      );
+    }
+    
+    // For notifications section
+    return (
+      <View style={styles.sectionHeaderContainer}>
+        <Text style={styles.sectionHeader}>{title}</Text>
+      </View>
+    );
   };
   
   const sections = [];
@@ -565,7 +809,7 @@ export default function FeedScreen({ navigation }) {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#f2f2f2' }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
       <View
         style={{
           position: 'absolute',
@@ -595,7 +839,7 @@ export default function FeedScreen({ navigation }) {
 
 // Styles remain the same
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F2F2F2' },
+  container: { flex: 1, backgroundColor: '#FFFFFF' },
   listContentContainer: {
     paddingBottom: 100,
   },
@@ -606,14 +850,65 @@ const styles = StyleSheet.create({
     fontFamily: 'PatrickHand-Regular',
     color: '#8BA637',
   },
+  sectionHeaderContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    paddingTop: 20,
+    paddingBottom: 10,
+    paddingHorizontal: 20,
+  },
   sectionHeader: {
     fontSize: 20,
     fontFamily: 'PatrickHand-Regular',
     color: '#8BA637',
-    backgroundColor: '#F2F2F2',
-    paddingTop: 20,
-    paddingBottom: 10,
-    paddingHorizontal: 20,
+  },
+  filterContainer: {
+    position: 'relative',
+  },
+  filterButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 10,
+    paddingVertical: 5,
+    marginRight: -5,
+  },
+  filterText: {
+    fontSize: 20,
+    fontFamily: 'PatrickHand-Regular',
+    color: '#8BA637',
+    marginRight: 5,
+  },
+  dropdownContainer: {
+    position: 'absolute',
+    top: '100%',
+    right: 0,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    padding: 8,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    zIndex: 1000,
+    minWidth: 150,
+  },
+  dropdownItem: {
+    paddingVertical: 8,
+    paddingLeft: 12,
+  },
+  dropdownText: {
+    fontSize: 20,
+    fontFamily: 'PatrickHand-Regular',
+    color: '#53544D',
+  },
+  selectedFilter: {
+    color: '#8BA637',
   },
   requestCard: {
     flexDirection: 'row',
@@ -623,7 +918,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#E9E9E9',
     paddingHorizontal: 20,
-    backgroundColor: '#F2F2F2',
+    backgroundColor: '#FFFFFF',
   },
   requestUserInfo: {
     flexDirection: 'row',
@@ -637,6 +932,8 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     marginRight: 12,
     backgroundColor: '#e6e6e6',
+    borderWidth: 0.2,
+    borderColor: '#b9b9b9',
   },
   requestTextContainer: {
     flex: 1,
@@ -668,7 +965,7 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   acceptButtonText: {
-    color: '#f2f2f2',
+    color: '#FFFFFF',
     fontFamily: 'PatrickHand-Regular',
     fontSize: 14,
   },
@@ -714,20 +1011,26 @@ const styles = StyleSheet.create({
   postHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 10,
-    paddingHorizontal: 15,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E9E9E9',
   },
   postHeaderTextRow: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    marginLeft: 4,
   },
   avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    marginRight: 10,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    marginRight: 12,
+    backgroundColor: '#e6e6e6',
+    borderWidth: 0.2,
+    borderColor: '#b9b9b9',
   },
   postUsername: {
     fontSize: 16,
@@ -740,14 +1043,45 @@ const styles = StyleSheet.create({
     fontFamily: 'PatrickHand-Regular',
     textAlign: 'right',
   },
+  postImageContainer: {
+    position: 'relative',
+  },
   postImage: {
     width: '100%',
     aspectRatio: 1,
     resizeMode: 'cover',
   },
+  actionButtonsContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 8,
+  },
+  actionButton: {
+    marginRight: 16,
+  },
+  likesText: {
+    fontFamily: 'PatrickHand-Regular',
+    fontSize: 16,
+    color: '#333',
+    fontWeight: 'bold',
+    paddingHorizontal: 20,
+    paddingBottom: 4,
+  },
+  captionContainer: {
+    paddingHorizontal: 20,
+    paddingTop: 4,
+    paddingBottom: 10,
+  },
+  captionText: {
+    fontFamily: 'PatrickHand-Regular',
+    fontSize: 16,
+    color: '#333',
+    lineHeight: 22,
+  },
   commentsBtn: {
     paddingLeft: 20,
-    paddingVertical: 15,
+    paddingBottom: 15,
   },
   commentsText: {
     fontSize: 16,
@@ -816,5 +1150,13 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: '#b9b9b9',
     marginTop: 8,
+  },
+  heartContainer: {
+    position: 'absolute',
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1,
   },
 });

@@ -39,7 +39,7 @@ export default function CreateProfilePhotoScreen({ navigation }: Props) {
     }
 
     let result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: 'images',
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.5,
@@ -140,7 +140,7 @@ export default function CreateProfilePhotoScreen({ navigation }: Props) {
                 <Image source={{ uri: imageUri }} style={styles.profileImage} />
             ) : (
                 <View style={styles.placeholder}>
-                    <MaterialIcons name="add-a-photo" size={60} color="#F2F2F290" />
+                    <MaterialIcons name="add-a-photo" size={60} color="#FFFFFF90" />
                     <Text style={styles.placeholderText}>Select a photo</Text>
                 </View>
             )}
@@ -149,7 +149,7 @@ export default function CreateProfilePhotoScreen({ navigation }: Props) {
 
       <View style={styles.bottomContainer}>
         {loading ? (
-          <ActivityIndicator size="small" color="#F2F2F2" style={{ paddingVertical: 12 }} />
+          <ActivityIndicator size="small" color="#FFFFFF" style={{ paddingVertical: 12 }} />
         ) : (
           <>
             <Pressable
@@ -185,7 +185,7 @@ const styles = StyleSheet.create({
       title: {
         fontSize: 36,
         fontFamily: 'PatrickHand-Regular',
-        color: '#F2F2F2',
+        color: '#FFFFFF',
         textAlign: 'center',
         marginBottom: 40,
         paddingHorizontal: 20,
@@ -198,13 +198,15 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
         borderWidth: 2,
-        borderColor: '#F2F2F250',
+        borderColor: '#FFFFFF50',
         borderStyle: 'dashed',
       },
       profileImage: {
           width: '100%',
           height: '100%',
           borderRadius: 100,
+          borderWidth: 0.5,
+          borderColor: '#FFFFFF',
       },
       placeholder: {
         justifyContent: 'center',
@@ -214,14 +216,14 @@ const styles = StyleSheet.create({
         marginTop: 10,
         fontFamily: 'PatrickHand-Regular',
         fontSize: 18,
-        color: '#F2F2F290',
+        color: '#FFFFFF90',
       },
       bottomContainer: {
         padding: 20,
         paddingBottom: 40,
       },
       buttonContainer: {
-        backgroundColor: '#F2F2F2',
+        backgroundColor: '#FFFFFF',
         borderRadius: 25,
         height: 48,
         justifyContent: 'center',
@@ -237,7 +239,7 @@ const styles = StyleSheet.create({
           alignSelf: 'center',
       },
       skipButtonText: {
-        color: '#F2F2F2',
+        color: '#FFFFFF',
         fontSize: 18,
         fontFamily: 'PatrickHand-Regular',
       }

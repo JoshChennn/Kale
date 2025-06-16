@@ -97,7 +97,7 @@ function MainTabs({ currentUser }: { currentUser: FirebaseUser }) {
         headerShown: false,
         tabBarStyle: {
           height: 90,
-          backgroundColor: '#F2F2F2',
+          backgroundColor: '#FFFFFF',
           alignItems: 'center',
           paddingTop: 8,
           borderTopWidth: 0,
@@ -286,7 +286,7 @@ export default function App() {
 
   if (!fontsLoaded || authStatus === 'LOADING') {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F2F2F2' }}>
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFFFFF' }}>
         <ActivityIndicator size="large" color="#8BA637" />
       </View>
     );

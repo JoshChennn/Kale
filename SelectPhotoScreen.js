@@ -26,8 +26,7 @@ export default function SelectPhotoScreen({ navigation }) {
 
     try {
       let result = await ImagePicker.launchImageLibraryAsync({
-        // ✅ CORRECTED THIS LINE
-        mediaTypes: 'Images',
+        mediaTypes: ['images', 'videos'],
         allowsMultipleSelection: true,
         quality: 0.7,
       });
@@ -80,8 +79,8 @@ export default function SelectPhotoScreen({ navigation }) {
         {selectedUris.length === 0 && (
             <View style={styles.emptyStateContainer}>
                 <MaterialIcons name="image-search" size={80} color="#e0e0e0" />
-                <Text style={styles.emptyStateText}>No photos selected yet.</Text>
-                <Text style={styles.emptyStateSubText}>Tap the button above to choose photos.</Text>
+                <Text style={styles.emptyStateText}>No media selected yet.</Text>
+                <Text style={styles.emptyStateSubText}>Tap the button above to choose photos or videos.</Text>
             </View>
         )}
       </View>
@@ -91,7 +90,7 @@ export default function SelectPhotoScreen({ navigation }) {
 
 // Styles remain the same
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f2f2f2' },
+  container: { flex: 1, backgroundColor: '#FFFFFF' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -101,6 +100,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderColor: '#ddd',
     height: Platform.OS === 'ios' ? 56 : 60,
+    backgroundColor: '#FFFFFF',
   },
   title: { fontSize: 20, fontFamily: 'PatrickHand-Regular', color: '#53544D' },
   next: { fontSize: 18, color: '#8BA637', fontFamily: 'PatrickHand-Regular' },

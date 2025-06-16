@@ -8,8 +8,8 @@ import { Alert, ActivityIndicator } from 'react-native';
 import { functions } from './firebaseConfig';
 
 const screenWidth = Dimensions.get('window').width;
-const gridMargin = 6;
-const imgSize = (screenWidth - gridMargin * 4) / 3;
+const gridMargin = 1;
+const imgSize = (screenWidth - gridMargin * 2) / 3;
 
 export default function ProfileModal({ navigation, route }) {
   const { userId } = route.params;
@@ -127,7 +127,7 @@ export default function ProfileModal({ navigation, route }) {
 
   if (loading) {
     return (
-      <SafeAreaView style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F2F2F2' }}>
+      <SafeAreaView style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFFFFF' }}>
         <ActivityIndicator size="large" color="#8BA637" />
       </SafeAreaView>
     );
@@ -135,7 +135,7 @@ export default function ProfileModal({ navigation, route }) {
 
   if (!user) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: '#F2F2F2' }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><Text>User not found</Text></View>
       </SafeAreaView>
     );
@@ -170,7 +170,7 @@ export default function ProfileModal({ navigation, route }) {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#F2F2F2' }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
       <View style={{ flex: 1 }}>
         <Pressable style={styles.backButton} onPress={() => navigation.goBack()}>
           <MaterialIcons name="arrow-back" size={24} color="#b9b9b9" />
@@ -187,7 +187,9 @@ export default function ProfileModal({ navigation, route }) {
             />
             <View style={styles.row}>
               <Text style={styles.name}>{user.displayName}</Text>
-              <MaterialIcons name="verified" size={20} color="#8BA637" style={{ marginLeft: 4 }} />
+              {user.verified && (
+                <MaterialIcons name="verified" size={20} color="#8BA637" style={{ marginLeft: 4 }} />
+              )}
             </View>
             <Text style={styles.handle}>{user.username ? `@${user.username}` : `@${(user.displayName || '').toLowerCase().replace(/\s/g, '')}`}</Text>
             <Text style={styles.bio}>{user.bio}</Text>
@@ -242,7 +244,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     height: 83,
     flexDirection: 'row',
-    backgroundColor: '#F2F2F2',
+    backgroundColor: '#FFFFFF',
     justifyContent: 'space-around',
     alignItems: 'center',
     zIndex: 99,
@@ -258,7 +260,7 @@ const styles = StyleSheet.create({
     borderColor: '#b9b9b9',  
     marginLeft: 35,
     marginBottom: 12,
-    backgroundColor: '#e6e6e6',
+    backgroundColor: '#FFFFFF',
   },
   row: {
     flexDirection: 'row',
@@ -291,21 +293,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     marginTop: 40,
-    marginHorizontal: gridMargin,
+    marginHorizontal: 0,
   },
   gridImg: {
     width: imgSize,
     height: imgSize,
-    borderRadius: 5,
+    borderRadius: 0,
     marginBottom: gridMargin,
     marginRight: gridMargin,
-    backgroundColor: '#ccc',
+    backgroundColor: '#FFFFFF',
   },
   postCard: {},
   editProfileButton: {
     backgroundColor: '#e6e6e6',
     borderRadius: 5,
-    width: 150,
+    flex: 1,
     height: 33,
     justifyContent: 'center',
     alignItems: 'center',
@@ -319,7 +321,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F2F2F2',
+    backgroundColor: '#FFFFFF',
     paddingTop: 150,
   },
   lockText: {
@@ -337,7 +339,7 @@ const styles = StyleSheet.create({
   addFriendButton: {
     backgroundColor: '#8BA637',
     borderRadius: 5,
-    width: 113,
+    flex: 1,
     height: 33,
     justifyContent: 'center',
     alignItems: 'center',
@@ -345,12 +347,12 @@ const styles = StyleSheet.create({
   addFriendText: {
     fontFamily: 'PatrickHand-Regular',
     fontSize: 16,
-    color: '#f2f2f2',
+    color: '#FFFFFF',
   },
   followingButton: {
     backgroundColor: '#e6e6e6',
     borderRadius: 5,
-    width: 113,
+    flex: 1,
     height: 33,
     justifyContent: 'center',
     alignItems: 'center',
@@ -363,7 +365,7 @@ const styles = StyleSheet.create({
   requestedButton: {
     backgroundColor: '#e6e6e6',
     borderRadius: 5,
-    width: 113,
+    flex: 1,
     height: 33,
     justifyContent: 'center',
     alignItems: 'center',
@@ -375,9 +377,10 @@ const styles = StyleSheet.create({
   },
   buttonWrapper: {
     marginTop: 18,
-    marginLeft: 35,
+    marginHorizontal: 35,
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 12,
   },
   backButton: {
     flexDirection: 'row',
@@ -386,7 +389,6 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   backButtonText: {
-    marginLeft: 8,
     fontSize: 18,
     fontFamily: 'PatrickHand-Regular',
     color: '#b9b9b9',

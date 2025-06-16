@@ -8,8 +8,8 @@ import { functions } from './firebaseConfig';
 import defaultProfilePhoto from './assets/default-profile-photo.png';
 
 const screenWidth = Dimensions.get('window').width;
-const gridMargin = 6;
-const imgSize = (screenWidth - gridMargin * 4) / 3;
+const gridMargin = 1;
+const imgSize = (screenWidth - gridMargin * 2) / 3;
 
 export default function ProfileScreen({ navigation, route }) {
   const userId = route.params?.userId; 
@@ -130,7 +130,7 @@ export default function ProfileScreen({ navigation, route }) {
 
   if (loading) {
     return (
-      <SafeAreaView style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F2F2F2' }}>
+      <SafeAreaView style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFFFFF' }}>
         <ActivityIndicator size="large" color="#8BA637" />
       </SafeAreaView>
     );
@@ -169,7 +169,7 @@ export default function ProfileScreen({ navigation, route }) {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#F2F2F2' }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
       <View style={{ flex: 1 }}>
         <ScrollView
           contentContainerStyle={{ paddingBottom: 100 }}
@@ -182,7 +182,9 @@ export default function ProfileScreen({ navigation, route }) {
             />
             <View style={styles.row}>
               <Text style={styles.name}>{user?.displayName || 'User'}</Text>
-              <MaterialIcons name="verified" size={20} color="#8BA637" style={{ marginLeft: 4 }} />
+              {user?.verified && (
+                <MaterialIcons name="verified" size={20} color="#8BA637" style={{ marginLeft: 4 }} />
+              )}
             </View>
             <Text style={styles.handle}>
               {user?.username ? `@${user.username}` : `@${(user?.displayName || 'user').toLowerCase().replace(/\s/g, '')}`}
@@ -245,11 +247,11 @@ export default function ProfileScreen({ navigation, route }) {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: '#F2F2F2',
+    backgroundColor: '#FFFFFF',
   },
   container: {
     paddingBottom: 32,
-    backgroundColor: '#F2F2F2',
+    backgroundColor: '#FFFFFF',
     flexGrow: 1,
   },
   profileImage: {
@@ -261,7 +263,7 @@ const styles = StyleSheet.create({
     marginTop: 69,
     marginLeft: 35,
     marginBottom: 12,
-    backgroundColor: '#e6e6e6',
+    backgroundColor: '#FFFFFF',
   },
   row: {
     flexDirection: 'row',
@@ -292,14 +294,15 @@ const styles = StyleSheet.create({
   },
   buttonWrapper: {
     marginTop: 18,
-    marginLeft: 35,
+    marginHorizontal: 35,
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 12,
   },
   addFriendButton: {
     backgroundColor: '#8BA637',
     borderRadius: 5,
-    width: 113,
+    flex: 1,
     height: 33,
     justifyContent: 'center',
     alignItems: 'center',
@@ -307,12 +310,12 @@ const styles = StyleSheet.create({
   addFriendText: {
     fontFamily: 'PatrickHand-Regular',
     fontSize: 16,
-    color: '#f2f2f2',
+    color: '#FFFFFF',
   },
   followingButton: {
     backgroundColor: '#e6e6e6',
     borderRadius: 5,
-    width: 113,
+    flex: 1,
     height: 33,
     justifyContent: 'center',
     alignItems: 'center',
@@ -325,7 +328,7 @@ const styles = StyleSheet.create({
   requestedButton: {
     backgroundColor: '#e6e6e6',
     borderRadius: 5,
-    width: 113,
+    flex: 1,
     height: 33,
     justifyContent: 'center',
     alignItems: 'center',
@@ -339,7 +342,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F2F2F2',
+    backgroundColor: '#FFFFFF',
     paddingTop: 150,
   },
   lockText: {
@@ -358,24 +361,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     marginTop: 40,
-    marginHorizontal: gridMargin,
+    marginHorizontal: 0,
   },
   gridImg: {
     width: imgSize,
     height: imgSize,
-    borderRadius: 5,
+    borderRadius: 0,
     marginBottom: gridMargin,
     marginRight: gridMargin,
-    backgroundColor: '#ccc',
+    backgroundColor: '#FFFFFF',
   },
   editProfileButton: {
     backgroundColor: '#e6e6e6',
     borderRadius: 5,
-    width: 113,
+    flex: 1,
     height: 33,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
   },
   editProfileText: {
     fontFamily: 'PatrickHand-Regular',
@@ -385,7 +387,7 @@ const styles = StyleSheet.create({
   addFriendsProfileButton: {
     backgroundColor: '#8BA637',
     borderRadius: 5,
-    width: 113,
+    flex: 1,
     height: 33,
     justifyContent: 'center',
     alignItems: 'center',
@@ -393,6 +395,6 @@ const styles = StyleSheet.create({
   addFriendsProfileButtonText: {
     fontFamily: 'PatrickHand-Regular',
     fontSize: 16,
-    color: '#f2f2f2',
+    color: '#FFFFFF',
   },
 });

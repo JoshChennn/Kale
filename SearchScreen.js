@@ -204,7 +204,7 @@ export default function SearchScreen({ navigation }) {
           <TextInput
             value={query}
             onChangeText={setQuery}
-            placeholder="Find anyone…"
+            placeholder="Search by name or username..."
             placeholderTextColor="#999"
             style={styles.searchInput}
             autoCorrect={false}
@@ -241,7 +241,7 @@ export default function SearchScreen({ navigation }) {
                 recentsUsers.length ? (
                 <Text style={styles.recentsTitle}>Recents</Text>
                 ) : (
-                <Empty text="Search for friends to get started." />
+                <Empty text="No recent searches." />
                 )
             }
             keyboardDismissMode="on-drag"
@@ -261,12 +261,12 @@ const Empty = ({ text }) => (
 
 // styles
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f2f2f2' },
+  container: { flex: 1, backgroundColor: '#FFFFFF' },
   searchBarWrapper: {
     paddingTop: 70,
     paddingHorizontal: 20,
     paddingBottom: 10,
-    backgroundColor: '#f2f2f2',
+    backgroundColor: '#FFFFFF',
   },
   searchInputContainer: {
     flexDirection: 'row',
@@ -283,6 +283,7 @@ const styles = StyleSheet.create({
     fontFamily: 'PatrickHand-Regular',
     color: '#53544D',
     paddingVertical: 0,
+    letterSpacing: 0,
   },
   clearSearch: { marginLeft: 8 },
   listContentContainer: {
@@ -302,12 +303,14 @@ const styles = StyleSheet.create({
     flex: 1,
     marginRight: 10,
   },
-  avatar: { 
-    width: 44, 
-    height: 44, 
-    borderRadius: 22, 
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     marginRight: 12,
-    backgroundColor: '#E9E9E9',
+    backgroundColor: '#e6e6e6',
+    borderWidth: 0.2,
+    borderColor: '#b9b9b9',
   },
   textWrap: {
     flex: 1,
