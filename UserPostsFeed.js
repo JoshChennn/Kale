@@ -1,7 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react'; // ADDED: useMemo
 import {
   View, StyleSheet, Image, SafeAreaView, Text, ScrollView, Dimensions, Pressable, ActivityIndicator, Animated, Modal, TextInput, KeyboardAvoidingView, Platform, FlatList, TouchableWithoutFeedback, Keyboard, PanResponder
 } from 'react-native';
+// ADDED: Import Swipeable from react-native-gesture-handler
+import { Swipeable } from 'react-native-gesture-handler';
 import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import { db, auth } from './firebaseConfig';
 import { 
@@ -17,7 +19,8 @@ import {
   setDoc,
   deleteDoc,
   updateDoc,
-  addDoc
+  addDoc,
+  runTransaction
 } from 'firebase/firestore';
 import * as Haptics from 'expo-haptics';
 
@@ -41,11 +44,86 @@ const CommentsBottomSheet = ({ isVisible, onClose, post }) => {
   const [comments, setComments] = useState([]);
   const [newComment, setNewComment] = useState('');
   const [loadingComments, setLoadingComments] = useState(true);
+  const [replyingToComment, setReplyingToComment] = useState(null);
   const slideAnim = useRef(new Animated.Value(Dimensions.get('window').height)).current;
-  const fadeAnim = useRef(new Animated.Value(0)).current; // For overlay fade
-  const currentUser = auth.currentUser;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const textInputRef = useRef(null);
+  const [currentUserData, setCurrentUserData] = useState(null);
 
-  // New function to handle closing animation
+  const swipeableRefs = useRef(new Map()).current;
+  const hapticTriggeredMap = useRef(new Map()).current;
+
+  // MODIFIED: Pre-process comments to handle threading.
+  const { topLevelComments, repliesByParent } = useMemo(() => {
+    const commentsById = new Map(comments.map(c => [c.id, c]));
+    const parents = [];
+    const repliesMap = new Map();
+
+    // Pass 1: Identify all top-level comments and initialize a reply list for them.
+    comments.forEach(comment => {
+      if (!comment.replyToCommentId) {
+        parents.push(comment);
+        repliesMap.set(comment.id, []);
+      }
+    });
+
+    // Pass 2: Go through all replies and assign them to their ultimate top-level parent.
+    comments.forEach(comment => {
+      if (comment.replyToCommentId) {
+        let parentId = comment.replyToCommentId;
+        const visited = new Set([comment.id]); // For cycle detection
+
+        // Traverse up the reply chain to find the root comment.
+        while (parentId) {
+          if (repliesMap.has(parentId)) {
+            // Found the root parent, add the reply to its list and stop.
+            repliesMap.get(parentId).push(comment);
+            break;
+          }
+          if (visited.has(parentId)) break; // Cycle detected, stop.
+          visited.add(parentId);
+
+          const nextParent = commentsById.get(parentId);
+          parentId = nextParent ? nextParent.replyToCommentId : null;
+        }
+      }
+    });
+
+    // Sort parent comments by date (newest first).
+    parents.sort((a, b) => b.createdAt.seconds - a.createdAt.seconds);
+
+    // Sort replies within each thread by date (oldest first for conversational flow).
+    for (const replyList of repliesMap.values()) {
+      replyList.sort((a, b) => a.createdAt.seconds - b.createdAt.seconds);
+    }
+
+    return { topLevelComments: parents, repliesByParent: repliesMap };
+  }, [comments]);
+
+  // Add useEffect to fetch current user data
+  useEffect(() => {
+    const fetchCurrentUserData = async () => {
+      const user = auth.currentUser;
+      if (user) {
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        if (userDoc.exists()) {
+          setCurrentUserData({
+            uid: user.uid,
+            displayName: userDoc.data().name || user.displayName,
+            photoURL: userDoc.data().profilePhoto || user.photoURL
+          });
+        } else {
+          setCurrentUserData({
+            uid: user.uid,
+            displayName: user.displayName,
+            photoURL: user.photoURL
+          });
+        }
+      }
+    };
+    fetchCurrentUserData();
+  }, []);
+
   const handleClose = () => {
     Animated.parallel([
       Animated.timing(slideAnim, {
@@ -59,7 +137,8 @@ const CommentsBottomSheet = ({ isVisible, onClose, post }) => {
         useNativeDriver: true,
       }),
     ]).start(() => {
-      onClose(); // Call parent's close function AFTER animation completes
+      onClose();
+      setReplyingToComment(null);
     });
   };
 
@@ -67,18 +146,17 @@ const CommentsBottomSheet = ({ isVisible, onClose, post }) => {
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: (_, gestureState) => {
-        return gestureState.dy > 0; // Only respond to downward gestures
+        return gestureState.dy > 0;
       },
       onPanResponderMove: (_, gestureState) => {
-        if (gestureState.dy > 0) { // Only allow downward movement
+        if (gestureState.dy > 0) {
           slideAnim.setValue(gestureState.dy);
         }
       },
       onPanResponderRelease: (_, gestureState) => {
-        if (gestureState.dy > 100) { // If dragged down more than 100 units
-          handleClose(); // Use new close handler
+        if (gestureState.dy > 100) {
+          handleClose();
         } else {
-          // Reset position if not dragged enough
           Animated.spring(slideAnim, {
             toValue: 0,
             useNativeDriver: true,
@@ -88,25 +166,27 @@ const CommentsBottomSheet = ({ isVisible, onClose, post }) => {
     })
   ).current;
 
+  const commentsPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        return gestureState.dy > 10;
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dy > 50) {
+          Keyboard.dismiss();
+        }
+      },
+    })
+  ).current;
+
   useEffect(() => {
     if (isVisible) {
-      // Animate in
       Animated.parallel([
-        Animated.spring(slideAnim, {
-          toValue: 0,
-          useNativeDriver: true,
-          tension: 50,
-          friction: 7,
-        }),
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
+        Animated.timing(slideAnim, { toValue: 0, duration: 300, useNativeDriver: true, }),
+        Animated.timing(fadeAnim, { toValue: 1, duration: 300, useNativeDriver: true, }),
       ]).start();
     }
-    // The `else` block that handled animation is removed.
-    // The `handleClose` function now manages the closing animation.
   }, [isVisible]);
 
   useEffect(() => {
@@ -124,65 +204,219 @@ const CommentsBottomSheet = ({ isVisible, onClose, post }) => {
       }));
       setComments(fetchedComments);
       setLoadingComments(false);
-    }, (error) => {
-      console.error("Error fetching comments:", error);
-      setLoadingComments(false);
-    });
+    }, (error) => { console.error("Error fetching comments:", error); setLoadingComments(false); });
 
     return () => unsubscribe();
   }, [post]);
 
+  const handleSetReply = (comment) => {
+    setReplyingToComment(comment);
+    textInputRef.current?.focus();
+  };
+
+  const handleCancelReply = () => {
+    setReplyingToComment(null);
+  };
+
   const handlePostComment = async () => {
-    if (newComment.trim() === '' || !currentUser) return;
+    if (newComment.trim() === '' || !currentUserData) return;
 
     Keyboard.dismiss();
     const commentText = newComment;
+    const replyInfo = replyingToComment;
     setNewComment('');
+    setReplyingToComment(null);
 
     try {
-      // 1. Add the comment to the subcollection
       const commentsRef = collection(db, 'posts', post.id, 'comments');
-      await addDoc(commentsRef, {
+
+      const newCommentData = {
         text: commentText,
-        userId: currentUser.uid,
-        userName: currentUser.displayName,
-        userAvatar: currentUser.photoURL,
+        userId: currentUserData.uid,
+        userName: currentUserData.displayName,
+        userAvatar: currentUserData.photoURL,
         createdAt: Timestamp.now(),
-      });
+      };
       
-      // 2. Increment the commentsCount on the post
+      if (replyInfo) {
+        newCommentData.replyToCommentId = replyInfo.id;
+        newCommentData.replyToUserId = replyInfo.userId;
+        newCommentData.replyToUserName = replyInfo.userName;
+      }
+
+      await addDoc(commentsRef, newCommentData);
+      
       const postRef = doc(db, 'posts', post.id);
       await updateDoc(postRef, {
         commentsCount: increment(1)
       });
     } catch (error) {
       console.error("Error posting comment:", error);
-      // Optional: Show an error message to the user
-      setNewComment(commentText); // Restore the text on error
+      setNewComment(commentText);
+      setReplyingToComment(replyInfo);
     }
   };
 
-  const renderCommentItem = ({ item }) => (
-    <View style={styles.commentItem}>
-      <Image source={{ uri: item.userAvatar }} style={styles.commentAvatar} />
-      <View style={styles.commentContent}>
-        <View style={styles.commentHeader}>
-          <View style={styles.commentHeaderLeft}>
-            <Text style={styles.commentUsername}>{item.userName}</Text>
-            <Text style={styles.commentDate}>{item.date.replace(' ago', '')}</Text>
+  const handleDeleteComment = async (commentToDelete) => {
+    if (!currentUserData || !post) return;
+
+    // Check permissions: user can delete their own comment OR the post owner can delete any comment.
+    const isOwnerOfComment = currentUserData.uid === commentToDelete.userId;
+    const isOwnerOfPost = currentUserData.uid === post.userId;
+
+    if (!isOwnerOfComment && !isOwnerOfPost) {
+      console.log("No permission to delete this comment.");
+      swipeableRefs.get(commentToDelete.id)?.close();
+      return;
+    }
+
+    // Identify all comments to be deleted (the comment itself + its replies if it's a parent)
+    const commentsToDeleteIds = [commentToDelete.id];
+    if (!commentToDelete.replyToCommentId) { // It's a parent comment
+      const replies = repliesByParent.get(commentToDelete.id) || [];
+      replies.forEach(reply => commentsToDeleteIds.push(reply.id));
+    }
+    
+    const postRef = doc(db, 'posts', post.id);
+    const commentsRef = collection(db, 'posts', post.id, 'comments');
+
+    try {
+      await runTransaction(db, async (transaction) => {
+        // Delete all the comment documents
+        for (const commentId of commentsToDeleteIds) {
+          const commentDocRef = doc(commentsRef, commentId);
+          transaction.delete(commentDocRef);
+        }
+
+        // Decrement the commentsCount on the post
+        transaction.update(postRef, {
+          commentsCount: increment(-commentsToDeleteIds.length)
+        });
+      });
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error) {
+      console.error("Error deleting comment(s):", error);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      // Ensure the swipeable row closes regardless of success or failure
+      swipeableRefs.get(commentToDelete.id)?.close();
+    }
+  };
+
+  // MODIFIED: This function now renders a single comment row (parent or reply)
+  const renderSingleCommentRow = (comment, isReply = false) => {
+    // Check if the current user has permission to delete the comment
+    const canDelete = currentUserData && post && (currentUserData.uid === comment.userId || currentUserData.uid === post.userId);
+
+    const renderLeftActions = (progress, dragX) => {
+      const THRESHOLD = 30;
+      const scale = dragX.interpolate({
+        inputRange: [THRESHOLD, THRESHOLD + 10, THRESHOLD + 20],
+        outputRange: [0.3, 1.2, 1.0],
+        extrapolate: 'clamp',
+      });
+      const opacity = dragX.interpolate({
+        inputRange: [THRESHOLD, THRESHOLD + 10],
+        outputRange: [0, 1],
+        extrapolate: 'clamp',
+      });
+
+      return (
+        <View style={styles.replyActionContainer}>
+          <Animated.View style={{ transform: [{ scale }], opacity }}>
+            <Ionicons name="arrow-undo" size={24} color="#8BA637" />
+          </Animated.View>
+        </View>
+      );
+    };
+
+    const renderRightActions = (progress) => {
+      const trans = progress.interpolate({
+        inputRange: [0, 1],
+        outputRange: [80, 0], // Width of the action view
+      });
+      return (
+        <View style={styles.deleteActionContainer}>
+          <Animated.View style={[styles.deleteButton, { transform: [{ translateX: trans }] }]}>
+            <MaterialIcons name="delete-outline" size={28} color="white" />
+          </Animated.View>
+        </View>
+      );
+    };
+
+    return (
+      <Swipeable
+        key={comment.id}
+        ref={(ref) => { if (ref && comment.id) { swipeableRefs.set(comment.id, ref); } }}
+        renderLeftActions={renderLeftActions}
+        renderRightActions={canDelete ? renderRightActions : undefined}
+        onSwipeableRightOpen={() => {
+          if (canDelete) {
+            handleDeleteComment(comment);
+          }
+        }}
+        rightThreshold={40}
+        onSwipeableLeftDrag={({ nativeEvent }) => {
+          const THRESHOLD = 30;
+          if (nativeEvent.x > THRESHOLD && !hapticTriggeredMap.get(comment.id)) {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            hapticTriggeredMap.set(comment.id, true);
+          } else if (nativeEvent.x <= THRESHOLD && hapticTriggeredMap.get(comment.id)) {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            hapticTriggeredMap.set(comment.id, false);
+          }
+        }}
+        onSwipeableLeftOpen={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          handleSetReply(comment);
+          swipeableRefs.get(comment.id)?.close();
+        }}
+        onSwipeableWillClose={() => {
+          hapticTriggeredMap.set(comment.id, false);
+        }}
+        friction={2}
+        leftThreshold={30}
+      >
+        <View style={[styles.commentItem, isReply && styles.replyCommentItem]}>
+          <Image source={{ uri: comment.userAvatar }} style={styles.commentAvatar} />
+          <View style={styles.commentContent}>
+            <View style={styles.commentHeader}>
+              <View style={styles.commentHeaderLeft}>
+                <Text style={styles.commentUsername}>{comment.userName}</Text>
+                <Text style={styles.commentDate}>{comment.date.replace(' ago', '')}</Text>
+              </View>
+            </View>
+            <Text style={styles.commentText}>
+              {comment.replyToUserName && (
+                <Text style={styles.replyToText}>@{comment.replyToUserName} </Text>
+              )}
+              {comment.text}
+            </Text>
           </View>
         </View>
-        <Text style={styles.commentText}>{item.text}</Text>
+      </Swipeable>
+    );
+  };
+
+  // MODIFIED: This function renders a parent comment and all its replies.
+  const renderCommentItem = ({ item: parentComment }) => {
+    const replies = repliesByParent.get(parentComment.id) || [];
+
+    return (
+      <View>
+        {renderSingleCommentRow(parentComment, false)}
+        {replies.map((reply) => renderSingleCommentRow(reply, true))}
       </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <Modal
       animationType="none"
       transparent={true}
       visible={isVisible}
-      onRequestClose={handleClose} // Use new close handler
+      onRequestClose={handleClose}
     >
       <TouchableWithoutFeedback onPress={handleClose}>
         <Animated.View style={[styles.modalOverlay, { opacity: fadeAnim }]} />
@@ -194,9 +428,8 @@ const CommentsBottomSheet = ({ isVisible, onClose, post }) => {
       >
         <Animated.View 
           style={[styles.sheetContainer, { transform: [{ translateY: slideAnim }] }]}
-          {...panResponder.panHandlers}
         >
-          <View style={styles.sheetHeader}>
+          <View style={styles.sheetHeader} {...panResponder.panHandlers}>
             <View style={styles.grabber} />
             <Text style={styles.sheetTitle}>Comments</Text>
           </View>
@@ -204,29 +437,58 @@ const CommentsBottomSheet = ({ isVisible, onClose, post }) => {
           {loadingComments ? (
             <ActivityIndicator size="large" color="#8BA637" style={{ flex: 1 }} />
           ) : (
-            <FlatList
-              data={comments}
-              renderItem={renderCommentItem}
-              keyExtractor={item => item.id}
-              ListEmptyComponent={<Text style={styles.noCommentsText}>No comments yet. Be the first!</Text>}
-              contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 20 }}
-            />
+            <View style={{ flex: 1 }} {...commentsPanResponder.panHandlers}>
+              <FlatList
+                // MODIFIED: Data is now the pre-processed topLevelComments array.
+                data={topLevelComments}
+                renderItem={renderCommentItem}
+                keyExtractor={item => item.id}
+                ListEmptyComponent={<Text style={styles.noCommentsText}>No comments yet. Be the first!</Text>}
+                contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 20 }}
+                showsVerticalScrollIndicator={true}
+                scrollEnabled={true}
+                nestedScrollEnabled={true}
+                style={{ flex: 1 }}
+              />
+            </View>
           )}
 
           <View style={styles.inputContainer}>
-            <Image source={{ uri: currentUser?.photoURL }} style={styles.inputAvatar} />
-            <TextInput
-              style={styles.input}
-              placeholder="Add a comment..."
-              value={newComment}
-              onChangeText={setNewComment}
-              placeholderTextColor="#999"
-            />
-            <Pressable onPress={handlePostComment} disabled={newComment.trim() === ''}>
-              <Text style={[styles.postButton, { opacity: newComment.trim() === '' ? 0.5 : 1 }]}>
-                Post
-              </Text>
-            </Pressable>
+            {replyingToComment && (
+              <View style={styles.replyingToContainer}>
+                <Text style={styles.replyingToText}>
+                  Replying to @{replyingToComment.userName}
+                </Text>
+                <Pressable onPress={handleCancelReply}>
+                  <Ionicons name="close-circle" size={20} color="#999" />
+                </Pressable>
+              </View>
+            )}
+            <View style={styles.mainInputRow}>
+              <Image 
+                source={{ uri: currentUserData?.photoURL || 'https://via.placeholder.com/40' }} 
+                style={styles.inputAvatar} 
+              />
+              <TextInput
+                ref={textInputRef}
+                style={styles.input}
+                placeholder="Add a comment..."
+                value={newComment}
+                onChangeText={setNewComment}
+                placeholderTextColor="#999"
+                returnKeyType="send"
+                returnKeyLabel="Send"
+                onSubmitEditing={handlePostComment}
+                blurOnSubmit={false}
+              />
+              <Pressable 
+                onPress={handlePostComment} 
+                disabled={newComment.trim() === ''}
+                style={[styles.postButton, { opacity: newComment.trim() === '' ? 0.5 : 1 }]}
+              >
+                <Ionicons name="arrow-up" size={20} color="white" />
+              </Pressable>
+            </View>
           </View>
         </Animated.View>
       </KeyboardAvoidingView>
@@ -237,6 +499,7 @@ const CommentsBottomSheet = ({ isVisible, onClose, post }) => {
 
 export default function UserPostsFeed({ navigation, route }) {
   const { userId, initialPost } = route.params;
+  
   const currentUserId = auth.currentUser?.uid;
   const [posts, setPosts] = useState([]);
   const [user, setUser] = useState(null);
@@ -245,6 +508,9 @@ export default function UserPostsFeed({ navigation, route }) {
   const lastTap = useRef(0);
   const heartAnims = useRef(new Map()).current;
   const likeButtonAnims = useRef(new Map()).current;
+  const scrollViewRef = useRef(null);
+  const postRefs = useRef(new Map()).current;
+  const hasScrolledToInitialPost = useRef(false);
   
   // State for comments bottom sheet
   const [isCommentsSheetVisible, setCommentsSheetVisible] = useState(false);
@@ -257,6 +523,27 @@ export default function UserPostsFeed({ navigation, route }) {
 
   const closeCommentsSheet = () => {
     setCommentsSheetVisible(false);
+  };
+
+  // Function to scroll to specific post instantly
+  const scrollToPost = (postId) => {
+    if (!scrollViewRef.current || !postRefs.has(postId)) {
+      return;
+    }
+    
+    const postRef = postRefs.get(postId);
+    postRef.measureLayout(
+      scrollViewRef.current,
+      (x, y) => {
+        scrollViewRef.current.scrollTo({
+          y: Math.max(0, y), // No offset - post appears right at the top
+          animated: false, // Instant scroll
+        });
+      },
+      (error) => {
+        console.error('Error measuring post position:', error);
+      }
+    );
   };
 
   // Initialize heart animations for posts
@@ -296,12 +583,12 @@ export default function UserPostsFeed({ navigation, route }) {
         const postDocs = querySnapshot.docs;
         
         // Check which posts are liked by current user
+        let likedPostIds = new Set();
         if (currentUserId) {
             const likeCheckPromises = postDocs.map(postDoc => 
               getDoc(doc(db, 'posts', postDoc.id, 'likes', currentUserId))
             );
             const likeDocs = await Promise.all(likeCheckPromises);
-            const likedPostIds = new Set();
             likeDocs.forEach((likeDoc, index) => {
               if (likeDoc.exists()) {
                 likedPostIds.add(postDocs[index].id);
@@ -317,10 +604,11 @@ export default function UserPostsFeed({ navigation, route }) {
             ...postData,
             user: { id: postData.userId, name: postData.userName, avatar: postData.userAvatar },
             date: getTimeAgo(postData.createdAt).replace(' ago', ''),
-            likedByCurrentUser: likedPosts.has(postDoc.id),
+            likedByCurrentUser: likedPostIds.has(postDoc.id),
           };
         });
 
+        // Set posts in normal chronological order
         setPosts(fetchedPosts);
       } catch (error) {
         console.error("Error processing posts:", error);
@@ -336,7 +624,18 @@ export default function UserPostsFeed({ navigation, route }) {
       unsubscribeUser();
       unsubscribePosts();
     };
-  }, [userId, currentUserId]);
+  }, [userId, currentUserId, initialPost]);
+
+  // Scroll to initial post when posts are loaded
+  useEffect(() => {
+    if (!loading && initialPost && posts.length > 0 && !hasScrolledToInitialPost.current) {
+      // Use setTimeout to ensure the layout is complete
+      setTimeout(() => {
+        scrollToPost(initialPost.id);
+        hasScrolledToInitialPost.current = true;
+      }, 100);
+    }
+  }, [loading, posts, initialPost]);
 
   const handleLikeToggle = async (postId, currentlyLiked) => {
     if (!currentUserId) return;
@@ -389,16 +688,22 @@ export default function UserPostsFeed({ navigation, route }) {
 
     // Firebase update
     const postRef = doc(db, 'posts', postId);
-    const likeRef = doc(db, 'posts', postId, 'likes', currentUserId);
+    const likeRef = doc(postRef, 'likes', currentUserId);
 
     try {
-      if (currentlyLiked) {
-        await deleteDoc(likeRef);
-        await updateDoc(postRef, { likesCount: increment(-1) });
-      } else {
-        await setDoc(likeRef, { createdAt: Timestamp.now(), userId: currentUserId });
-        await updateDoc(postRef, { likesCount: increment(1) });
-      }
+      await runTransaction(db, async (transaction) => {
+        const likeDoc = await transaction.get(likeRef);
+        
+        if (likeDoc.exists()) {
+          // User is unliking the post
+          transaction.delete(likeRef);
+          transaction.update(postRef, { likesCount: increment(-1) });
+        } else {
+          // User is liking the post
+          transaction.set(likeRef, { createdAt: Timestamp.now(), userId: currentUserId });
+          transaction.update(postRef, { likesCount: increment(1) });
+        }
+      });
     } catch (error) {
       console.error("Error toggling like:", error);
       // Revert optimistic update on error
@@ -479,11 +784,12 @@ export default function UserPostsFeed({ navigation, route }) {
           <MaterialIcons name="arrow-back" size={24} color="#b9b9b9" />
           <Text style={styles.backButtonText}>Back</Text>
         </Pressable>
-        <Text style={styles.headerTitle}>{user?.displayName}'s Posts</Text>
+        <Text style={styles.headerTitle}>All Posts</Text>
       </View>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        ref={scrollViewRef}
       >
         {posts.map((post) => {
           if (!heartAnims.has(post.id)) heartAnims.set(post.id, new Animated.Value(0));
@@ -492,7 +798,15 @@ export default function UserPostsFeed({ navigation, route }) {
           const likeButtonAnim = likeButtonAnims.get(post.id);
 
           return (
-            <View key={post.id} style={styles.postCard}>
+            <View 
+              key={post.id} 
+              style={styles.postCard}
+              ref={(ref) => {
+                if (ref) {
+                  postRefs.set(post.id, ref);
+                }
+              }}
+            >
               <Pressable
                 style={styles.postHeader}
                 onPress={() => navigation.navigate('ProfileModal', { userId: post.user.id })}
@@ -569,13 +883,11 @@ const styles = StyleSheet.create({
   header: {
     paddingTop: 10,
     paddingBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E9E9E9',
   },
   headerTitle: {
     fontSize: 20,
     fontFamily: 'PatrickHand-Regular',
-    color: '#8BA637',
+    color: '#000000',
     textAlign: 'center',
     marginTop: 10,
   },
@@ -706,8 +1018,6 @@ const styles = StyleSheet.create({
   sheetHeader: {
     alignItems: 'center',
     paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E9E9E9',
   },
   grabber: {
     width: 40,
@@ -717,13 +1027,14 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   sheetTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontFamily: 'PatrickHand-Regular',
     color: '#333',
   },
   commentItem: {
     flexDirection: 'row',
-    paddingVertical: 6,
+    paddingVertical: 12,
+    backgroundColor: '#FFFFFF', 
   },
   commentAvatar: {
     width: 36,
@@ -734,11 +1045,11 @@ const styles = StyleSheet.create({
   },
   commentContent: {
     flex: 1,
-    paddingTop: 2,
   },
   commentHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center', 
     marginBottom: 0,
   },
   commentHeaderLeft: {
@@ -748,13 +1059,15 @@ const styles = StyleSheet.create({
   commentUsername: {
     fontFamily: 'PatrickHand-Regular',
     fontSize: 15,
-    color: '#53544D',
+    color: '#8BA637',
     marginRight: 8,
+    marginTop: -5,
   },
   commentDate: {
     fontFamily: 'PatrickHand-Regular',
     fontSize: 14,
     color: '#b9b9b9',
+    marginTop: -5,
   },
   commentText: {
     fontFamily: 'PatrickHand-Regular',
@@ -771,13 +1084,15 @@ const styles = StyleSheet.create({
     color: '#999',
   },
   inputContainer: {
+    flexDirection: 'column', 
+    backgroundColor: '#fff',
+  },
+  mainInputRow: { 
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 15,
     paddingVertical: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#E9E9E9',
-    backgroundColor: '#fff',
+    position: 'relative',
   },
   inputAvatar: {
     width: 40,
@@ -792,16 +1107,68 @@ const styles = StyleSheet.create({
     backgroundColor: '#F5F5F5',
     borderRadius: 20,
     paddingHorizontal: 15,
+    paddingRight: 45,
     fontFamily: 'PatrickHand-Regular',
     fontSize: 16,
     letterSpacing: 0,
   },
   postButton: {
-    marginLeft: 10,
+    position: 'absolute',
+    right: 20,
+    top: 15,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#8BA637',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  replyActionContainer: {
+    backgroundColor: 'transparent',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 30,
+    height: '100%',
+    borderRadius: 0,
+  },
+  replyButton: {
+    padding: 5,
+  },
+  replyToText: {
     fontFamily: 'PatrickHand-Regular',
-    fontSize: 16,
+    fontSize: 15,
     color: '#8BA637',
     fontWeight: 'bold',
+  },
+  replyingToContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 15,
+    paddingBottom: 8,
+    paddingTop: 8,
+    backgroundColor: '#f7f7f7',
+  },
+  replyingToText: {
+    fontFamily: 'PatrickHand-Regular',
+    fontSize: 14,
+    color: '#666',
+  },
+  replyCommentItem: {
+    marginLeft: 48, // Indent replies
+    paddingLeft: 12,
+    // MODIFIED: Removed border to avoid visual artifacts with swipeable
+  },
+  deleteActionContainer: {
+    backgroundColor: '#FF3B30',
+    justifyContent: 'center',
+    width: 80,
+  },
+  deleteButton: {
+    width: 80,
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: '100%',
   },
   // --- END OF CommentsBottomSheet STYLES ---
 });

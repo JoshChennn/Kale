@@ -87,6 +87,7 @@ function FeedStackScreen() {
       <FeedStack.Screen name="Feed" component={FeedScreen} />
       <FeedStack.Screen name="ProfileModal" component={ProfileModal} />
       <FeedStack.Screen name="PostDetail" component={PostScreen} />
+      <FeedStack.Screen name="UserPostsFeed" component={UserPostsFeed} />
     </FeedStack.Navigator>
   );
 }
