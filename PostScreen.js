@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   SafeAreaView,
-  ScrollView,
   Image,
   TextInput,
   Pressable,
@@ -71,33 +70,33 @@ export default function PostScreen({ route, navigation }) {
     </View>
   );
 
+  const ListHeaderComponent = () => (
+    <Image source={{ uri: post.imageUri }} style={styles.postImage} />
+  );
+
+  const ListEmptyComponent = () => (
+    <Text style={styles.noCommentsText}>No comments yet. Be the first!</Text>
+  );
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.header}>
         <Pressable onPress={() => navigation.goBack()} style={styles.backButton}>
           <MaterialIcons name="arrow-back" size={24} color="#53544D" />
         </Pressable>
-        <Text style={styles.headerTitle}>Comments</Text>
-      </View>
-
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <Image source={{ uri: post.imageUri }} style={styles.postImage} />
         <Text style={styles.postUsername}>{post.user.name}</Text>
         <Text style={styles.postDate}>{post.date}</Text>
+      </View>
 
-        <View style={styles.commentsSection}>
-          {comments.length === 0 ? (
-            <Text style={styles.noCommentsText}>No comments yet. Be the first!</Text>
-          ) : (
-            <FlatList
-              data={comments}
-              keyExtractor={item => item.id}
-              renderItem={renderComment}
-              style={styles.commentsList}
-            />
-          )}
-        </View>
-      </ScrollView>
+      <FlatList
+        data={comments}
+        keyExtractor={item => item.id}
+        renderItem={renderComment}
+        ListHeaderComponent={ListHeaderComponent}
+        ListEmptyComponent={ListEmptyComponent}
+        contentContainerStyle={styles.container}
+        keyboardShouldPersistTaps="handled"
+      />
 
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -108,7 +107,7 @@ export default function PostScreen({ route, navigation }) {
             style={styles.input}
             value={newComment}
             onChangeText={setNewComment}
-            placeholder="add a comment..."
+            placeholder="Add a comment..."
             placeholderTextColor="#999"
           />
           <Pressable style={styles.sendButton} onPress={handleAddComment}>
@@ -124,10 +123,9 @@ const styles = StyleSheet.create({
   /* Container Styles */
   safeArea: {
     flex: 1,
-    backgroundColor: '#F2F2F2',
+    backgroundColor: '#FFFFFF',
   },
   container: {
-    padding: 20,
     paddingBottom: 80,
   },
 
@@ -135,37 +133,33 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e6e6e6',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    backgroundColor: '#FFFFFF',
   },
   backButton: {
-    marginRight: 10,
+    marginRight: 12,
   },
-  headerTitle: {
-    fontSize: 20,
-    fontFamily: 'PatrickHand-Regular',
+  postUsername: {
+    fontSize: 16,
     color: '#53544D',
+    fontFamily: 'PatrickHand-Regular',
+    flex: 1,
+    textAlign: 'center',
+  },
+  postDate: {
+    fontSize: 16,
+    color: '#b9b9b9',
+    fontFamily: 'PatrickHand-Regular',
+    marginLeft: 12,
   },
 
   /* Post Styles */
   postImage: {
     width: '100%',
-    height: 300,
-    borderRadius: 10,
+    aspectRatio: 1,
     marginBottom: 10,
     backgroundColor: '#ccc',
-  },
-  postUsername: {
-    fontSize: 16,
-    fontFamily: 'PatrickHand-Regular',
-    color: '#53544D',
-  },
-  postDate: {
-    fontSize: 14,
-    fontFamily: 'PatrickHand-Regular',
-    color: '#b9b9b9',
-    marginBottom: 20,
   },
 
   /* Comments Section */
@@ -178,15 +172,17 @@ const styles = StyleSheet.create({
     color: '#999',
     textAlign: 'center',
     marginTop: 40,
+    paddingHorizontal: 20,
   },
   commentsList: {
     marginBottom: 10,
   },
   commentItem: {
-    backgroundColor: '#f2f2f2',
+    backgroundColor: '#FFFFFF',
     padding: 10,
     borderRadius: 8,
     marginBottom: 15,
+    marginHorizontal: 20,
   },
   commentAuthor: {
     fontSize: 14,
@@ -212,9 +208,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#e6e6e6',
-    backgroundColor: '#F2F2F2',
+    paddingHorizontal: 20,
+    backgroundColor: '#FFFFFF',
   },
   input: {
     flex: 1,

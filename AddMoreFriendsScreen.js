@@ -475,8 +475,6 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         alignItems: 'center',
         paddingVertical: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: '#E9E9E9',
     },
     profileImage: {
         width: 44,

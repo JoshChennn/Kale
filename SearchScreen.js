@@ -294,8 +294,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E9E9E9',
   },
   rowPressable: {
     flexDirection: 'row',

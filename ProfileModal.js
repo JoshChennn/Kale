@@ -211,7 +211,7 @@ export default function ProfileModal({ navigation, route }) {
                 <Pressable
                   key={item.id}
                   style={styles.postCard}
-                  onPress={() => navigation.navigate('PostDetail', { post: item })}
+                  onPress={() => navigation.navigate('UserPostsFeed', { userId: userId, initialPost: item })}
                 >
                   <Image
                     source={{ uri: item.imageUri }}

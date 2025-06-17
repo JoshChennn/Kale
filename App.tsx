@@ -22,6 +22,7 @@ import SearchScreen from './SearchScreen';
 import SelectPhotoScreen from './SelectPhotoScreen';
 import CreatePostDetailsScreen from './CreatePostDetailsScreen';
 import EditProfileScreen from './EditProfileScreen'; // <-- IMPORT NEW SCREEN
+import UserPostsFeed from './UserPostsFeed';
 
 // Import the auth and onboarding screens
 import PhoneNumberScreen from './PhoneNumberScreen';
@@ -321,11 +322,15 @@ export default function App() {
             component={AddMoreFriendsScreen}
             options={{ presentation: 'modal' }}
           />
-          {/* --- ADD NEW SCREEN TO ROOT STACK --- */}
           <RootStack.Screen
             name="EditProfile"
             component={EditProfileScreen}
             options={{ presentation: 'modal', headerShown: false }}
+          />
+          <RootStack.Screen
+            name="UserPostsFeed"
+            component={UserPostsFeed}
+            options={{ gestureEnabled: true, gestureResponseDistance: 500 }}
           />
         </RootStack.Navigator>
       )}

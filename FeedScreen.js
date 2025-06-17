@@ -58,23 +58,32 @@ export default function FeedScreen({ navigation }) {
   const [postsCleared, setPostsCleared] = useState(false);
   const [footerPosition, setFooterPosition] = useState(-250);
   const [showDropdown, setShowDropdown] = useState(false);
-  const [selectedFilter, setSelectedFilter] = useState('Everyone');
+  const [selectedFilter, setSelectedFilter] = useState('Best Friends');
   const currentUser = auth.currentUser;
 
-  // Ref for the SectionList to enable programmatic scrolling
+  // Refs for animations
   const listRef = useRef(null);
-  
-  // Animation values
   const scaleAnim = useRef(new Animated.Value(1)).current;
-  const clearAnimation = useRef(new Animated.Value(0)).current; // For posts/footer exit
-  const clearedOpacity = useRef(new Animated.Value(0)).current;  // For "cleared" text entrance
-  const outlineOpacityAnim = useRef(new Animated.Value(0)).current; // For outline fade-in
+  const clearAnimation = useRef(new Animated.Value(0)).current;
+  const clearedOpacity = useRef(new Animated.Value(0)).current;
+  const outlineOpacityAnim = useRef(new Animated.Value(0)).current;
   const holdTimeout = useRef(null);
-  const hapticInterval = useRef(null); // Add reference for haptic interval
-  const heartBounceAnim = useRef(new Animated.Value(1.1)).current; // For heart bounce animation, starting at 1.1x
-
-  // Remove the single kaleEmojiAnim
+  const hapticInterval = useRef(null);
   const lastTap = useRef(0);
+  const heartAnims = useRef(new Map()).current;
+  const likeButtonAnims = useRef(new Map()).current;
+
+  // Initialize heart animations for posts
+  useEffect(() => {
+    posts.forEach(post => {
+      if (!heartAnims.has(post.id)) {
+        heartAnims.set(post.id, new Animated.Value(0));
+      }
+      if (!likeButtonAnims.has(post.id)) {
+        likeButtonAnims.set(post.id, new Animated.Value(1.1));
+      }
+    });
+  }, [posts]);
 
   const handleFollowRequest = httpsCallable(functions, 'handleFollowRequest');
 
@@ -272,18 +281,19 @@ export default function FeedScreen({ navigation }) {
       })
     );
   
-    // Haptic feedback for a satisfying "like"
+    // Haptic feedback
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   
     // Heart bounce animation
     if (!currentlyLiked) {
-      Animated.spring(heartBounceAnim, {
+      const likeButtonAnim = likeButtonAnims.get(postId);
+      Animated.spring(likeButtonAnim, {
         toValue: 1.3,
         friction: 5,
         tension: 100,
         useNativeDriver: true,
       }).start(() => {
-        Animated.spring(heartBounceAnim, {
+        Animated.spring(likeButtonAnim, {
           toValue: 1.1,
           friction: 5,
           tension: 100,
@@ -316,7 +326,6 @@ export default function FeedScreen({ navigation }) {
       setPosts(currentPosts =>
         currentPosts.map(p => {
           if (p.id === postId) {
-            // Revert to original state before the tap
             return {
               ...p,
               likedByCurrentUser: currentlyLiked,
@@ -479,8 +488,15 @@ export default function FeedScreen({ navigation }) {
 
   // --- RENDER COMPONENTS ---
   const renderPost = ({ item: post }) => {
-    // Create a unique animated value for this post
-    const heartAnim = useRef(new Animated.Value(0)).current;
+    // Get or create animation values for this post
+    if (!heartAnims.has(post.id)) {
+      heartAnims.set(post.id, new Animated.Value(0));
+    }
+    if (!likeButtonAnims.has(post.id)) {
+      likeButtonAnims.set(post.id, new Animated.Value(1.1));
+    }
+    const heartAnim = heartAnims.get(post.id);
+    const likeButtonAnim = likeButtonAnims.get(post.id);
 
     const handleDoubleTap = (event) => {
       const now = Date.now();
@@ -562,11 +578,11 @@ export default function FeedScreen({ navigation }) {
               style={styles.actionButton}
               onPress={() => handleLikeToggle(post.id, post.likedByCurrentUser)}
             >
-              <Animated.View style={{ transform: [{ scale: heartBounceAnim }] }}>
+              <Animated.View style={{ transform: [{ scale: likeButtonAnim }] }}>
                 <Ionicons 
-                    name={post.likedByCurrentUser ? "heart" : "heart-outline"} 
-                    size={28} 
-                    color={post.likedByCurrentUser ? "#8BA637" : "#333"}
+                  name={post.likedByCurrentUser ? "heart" : "heart-outline"} 
+                  size={28} 
+                  color={post.likedByCurrentUser ? "#8BA637" : "#333"}
                 />
               </Animated.View>
             </Pressable>
@@ -579,9 +595,7 @@ export default function FeedScreen({ navigation }) {
           </View>
           {post.caption && (
             <View style={styles.captionContainer}>
-               <Text style={styles.captionText}>
-                  {post.caption}
-              </Text>
+              <Text style={styles.captionText}>{post.caption}</Text>
             </View>
           )}
           <Pressable
@@ -680,43 +694,15 @@ export default function FeedScreen({ navigation }) {
           <View style={styles.filterContainer}>
             <Pressable 
               style={styles.filterButton}
-              onPress={() => setShowDropdown(!showDropdown)}
+              onPress={() => setSelectedFilter(selectedFilter === 'Best Friends' ? 'Everyone' : 'Best Friends')}
             >
               <Text style={styles.filterText}>{selectedFilter}</Text>
               <MaterialIcons 
-                name={showDropdown ? "keyboard-arrow-up" : "keyboard-arrow-down"} 
+                name="swap-horiz" 
                 size={24} 
                 color="#8BA637" 
               />
             </Pressable>
-            {showDropdown && (
-              <View style={styles.dropdownContainer}>
-                <Pressable 
-                  style={styles.dropdownItem}
-                  onPress={() => {
-                    setSelectedFilter('Best Friends');
-                    setShowDropdown(false);
-                  }}
-                >
-                  <Text style={[
-                    styles.dropdownText,
-                    selectedFilter === 'Best Friends' && styles.selectedFilter
-                  ]}>Best Friends</Text>
-                </Pressable>
-                <Pressable 
-                  style={styles.dropdownItem}
-                  onPress={() => {
-                    setSelectedFilter('Everyone');
-                    setShowDropdown(false);
-                  }}
-                >
-                  <Text style={[
-                    styles.dropdownText,
-                    selectedFilter === 'Everyone' && styles.selectedFilter
-                  ]}>Everyone</Text>
-                </Pressable>
-              </View>
-            )}
           </View>
         </View>
       );
@@ -839,7 +825,10 @@ export default function FeedScreen({ navigation }) {
 
 // Styles remain the same
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFFFFF' },
+  container: { 
+    flex: 1, 
+    backgroundColor: '#FFFFFF' 
+  },
   listContentContainer: {
     paddingBottom: 100,
   },
@@ -880,43 +869,11 @@ const styles = StyleSheet.create({
     color: '#8BA637',
     marginRight: 5,
   },
-  dropdownContainer: {
-    position: 'absolute',
-    top: '100%',
-    right: 0,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
-    padding: 8,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-    zIndex: 1000,
-    minWidth: 150,
-  },
-  dropdownItem: {
-    paddingVertical: 8,
-    paddingLeft: 12,
-  },
-  dropdownText: {
-    fontSize: 20,
-    fontFamily: 'PatrickHand-Regular',
-    color: '#53544D',
-  },
-  selectedFilter: {
-    color: '#8BA637',
-  },
   requestCard: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E9E9E9',
     paddingHorizontal: 20,
     backgroundColor: '#FFFFFF',
   },
@@ -1013,8 +970,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     paddingHorizontal: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E9E9E9',
   },
   postHeaderTextRow: {
     flex: 1,
