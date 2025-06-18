@@ -19,8 +19,6 @@ import ProfileModal from './ProfileModal.js';
 import PostScreen from './PostScreen';
 import StoryViewer from './StoryViewer';
 import SearchScreen from './SearchScreen';
-import SelectPhotoScreen from './SelectPhotoScreen';
-import CreatePostDetailsScreen from './CreatePostDetailsScreen';
 import EditProfileScreen from './EditProfileScreen'; // <-- IMPORT NEW SCREEN
 import UserPostsFeed from './UserPostsFeed';
 
@@ -41,7 +39,6 @@ import CreateProfilePhotoScreen from './CreateProfilePhotoScreen';
 const Tab = createBottomTabNavigator();
 const FeedStack = createStackNavigator();
 const RootStack = createStackNavigator();
-const CreatePostStack = createStackNavigator();
 const AuthStack = createStackNavigator<AuthStackParamList>();
 
 // Define param lists for navigators
@@ -64,15 +61,6 @@ type OnboardingStackParamList = {
   AddFriends: undefined;
 };
 const OnboardingStack = createStackNavigator<OnboardingStackParamList>();
-
-function CreatePostStackScreen() {
-  return (
-    <CreatePostStack.Navigator screenOptions={{ headerShown: false }}>
-      <CreatePostStack.Screen name="SelectPhoto" component={SelectPhotoScreen} />
-      <CreatePostStack.Screen name="PostDetails" component={CreatePostDetailsScreen} />
-    </CreatePostStack.Navigator>
-  );
-}
 
 function FeedStackScreen() {
   return (
@@ -138,7 +126,7 @@ function MainTabs({ currentUser }: { currentUser: FirebaseUser }) {
       />
       <Tab.Screen
         name="CreatePost"
-        component={CreatePostStackScreen}
+        component={PostScreen}
         options={{ title: 'Add Post' }}
       />
       <Tab.Screen

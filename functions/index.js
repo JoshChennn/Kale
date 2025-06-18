@@ -114,15 +114,32 @@ exports.requestToFollowUser = functions.https.onCall(async (data, context) => {
   }
   const requesterData = requesterDoc.data();
 
+  const batch = db.batch();
+
+  // 1. Create the follow request in followRequests subcollection
   const requestRef = db.collection("users").doc(userIdToFollow)
                        .collection("followRequests").doc(requesterId);
   
-  await requestRef.set({
+  batch.set(requestRef, {
     requesterName: requesterData.displayName || "A user",
     requesterAvatar: requesterData.photoURL || null,
     requesterUsername: requesterData.username || null,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
   });
+
+  // 2. Create a notification in notifications subcollection for the FeedScreen
+  const notificationRef = db.collection("users").doc(userIdToFollow)
+                            .collection("notifications").doc(requesterId);
+  
+  batch.set(notificationRef, {
+    type: 'follow_request',
+    requesterName: requesterData.displayName || "A user",
+    requesterUsername: requesterData.username || null,
+    requesterAvatar: requesterData.photoURL || null,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  await batch.commit();
 
   return { success: true, message: "Follow request sent." };
 });
@@ -142,10 +159,19 @@ exports.withdrawFollowRequest = functions.https.onCall(async (data, context) => 
         throw new functions.https.HttpsError("invalid-argument", "Missing userIdToWithdrawFrom.");
     }
 
+    const batch = db.batch();
+
+    // 1. Delete the follow request from followRequests subcollection
     const requestRef = db.collection("users").doc(userIdToWithdrawFrom)
                          .collection("followRequests").doc(requesterId);
+    batch.delete(requestRef);
+
+    // 2. Delete the notification from notifications subcollection
+    const notificationRef = db.collection("users").doc(userIdToWithdrawFrom)
+                              .collection("notifications").doc(requesterId);
+    batch.delete(notificationRef);
     
-    await requestRef.delete();
+    await batch.commit();
     return { success: true, message: "Follow request withdrawn." };
 });
 
@@ -186,27 +212,42 @@ exports.handleFollowRequest = functions.https.onCall(async (data, context) => {
         batch.set(followerRef, { createdAt: admin.firestore.FieldValue.serverTimestamp() });
 
         // 2. Create a notification for the requester
-        const notificationRef = db.collection("users").doc(requestingUserId).collection("followRequests").doc(currentUserId);
+        const notificationRef = db.collection("users").doc(requestingUserId).collection("notifications").doc(currentUserId);
         batch.set(notificationRef, {
             type: 'follow_accepted',
             acceptorName: currentUserData.displayName || "A user",
+            acceptorUsername: currentUserData.username || null,
             acceptorAvatar: currentUserData.photoURL || null,
             acceptorId: currentUserId,
             createdAt: admin.firestore.FieldValue.serverTimestamp()
         });
 
-        // 3. Delete the original request from the current user's notifications
+        // 3. Delete the original request from the current user's followRequests
         const requestDocRef = db.collection("users").doc(currentUserId)
                               .collection("followRequests").doc(requestingUserId);
         batch.delete(requestDocRef);
 
+        // 4. Delete the notification from the current user's notifications
+        const currentUserNotificationRef = db.collection("users").doc(currentUserId)
+                                            .collection("notifications").doc(requestingUserId);
+        batch.delete(currentUserNotificationRef);
+
         await batch.commit();
         return { success: true, message: "Request accepted." };
     } else { // action === 'ignore'
+        const batch = db.batch();
+
+        // 1. Delete the request from followRequests subcollection
         const requestDocRef = db.collection("users").doc(currentUserId)
                                   .collection("followRequests").doc(requestingUserId);
+        batch.delete(requestDocRef);
+
+        // 2. Delete the notification from notifications subcollection
+        const notificationRef = db.collection("users").doc(currentUserId)
+                                    .collection("notifications").doc(requestingUserId);
+        batch.delete(notificationRef);
         
-        await requestDocRef.delete();
+        await batch.commit();
         return { success: true, message: "Request ignored." };
     }
 });

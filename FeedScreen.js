@@ -13,6 +13,8 @@ import {
   Alert,
   SectionList,
   Animated,
+  Platform,
+  ActionSheetIOS,
 } from 'react-native';
 import { db, auth, functions } from './firebaseConfig';
 import { httpsCallable } from 'firebase/functions';
@@ -29,11 +31,13 @@ import {
   runTransaction,
   increment,
   getDoc,
+  deleteDoc,
 } from 'firebase/firestore';
 import defaultProfilePhoto from './assets/default-profile-photo.png';
 import * as Haptics from 'expo-haptics'; // --- HAPTICS: Import the library
 import { Ionicons } from '@expo/vector-icons';
 import { MaterialIcons } from '@expo/vector-icons';
+import CommentsBottomSheet from './CommentsBottomSheet';
 
 const { width: screenWidth } = Dimensions.get('window');
 const storySize = 70;
@@ -73,6 +77,10 @@ export default function FeedScreen({ navigation }) {
   const heartAnims = useRef(new Map()).current;
   const likeButtonAnims = useRef(new Map()).current;
 
+  // Add state for comments bottom sheet
+  const [isCommentsSheetVisible, setCommentsSheetVisible] = useState(false);
+  const [selectedPostForComments, setSelectedPostForComments] = useState(null);
+
   // Initialize heart animations for posts
   useEffect(() => {
     posts.forEach(post => {
@@ -92,14 +100,16 @@ export default function FeedScreen({ navigation }) {
   useEffect(() => {
     if (!currentUser) return;
 
-    // This listener fetches all notifications (requests and acceptances)
-    const notificationsQuery = query(collection(db, 'users', currentUser.uid, 'followRequests'));
+    // This listener fetches all notifications (requests, comments, etc.)
+    const notificationsQuery = query(
+      collection(db, 'users', currentUser.uid, 'notifications'),
+      orderBy('createdAt', 'desc'),
+      limit(30)
+    );
     const unsubscribeNotifications = onSnapshot(notificationsQuery, (querySnapshot) => {
       const newNotifications = querySnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data(),
-        // Default to 'follow_request' if the 'type' field is missing
-        type: doc.data().type || 'follow_request',
       }));
       setNotifications(newNotifications);
     });
@@ -123,13 +133,15 @@ export default function FeedScreen({ navigation }) {
 
       const followingIds = followingSnap.docs.map(doc => doc.id);
 
-      // --- POSTS LOGIC: Fetch posts only from people the user is following
+      // --- POSTS LOGIC: Fetch posts from people the user is following AND the current user
       if (followingIds.length > 0) {
         const limitedFollowingIds = followingIds.slice(0, 30);
+        // Include current user's posts in the feed
+        const allUserIds = [...limitedFollowingIds, currentUser.uid];
 
         const postsQuery = query(
           collection(db, 'posts'),
-          where('userId', 'in', limitedFollowingIds), // Only query for followed users
+          where('userId', 'in', allUserIds), // Query for followed users AND current user
           orderBy('createdAt', 'desc'),
           limit(25)
         );
@@ -158,7 +170,12 @@ export default function FeedScreen({ navigation }) {
             return {
               id: doc.id,
               ...postData,
-              user: { id: postData.userId, name: postData.userName, avatar: postData.userAvatar },
+              user: { 
+                id: postData.userId, 
+                name: postData.userName, 
+                username: postData.userUsername,
+                avatar: postData.userAvatar 
+              },
               date: getTimeAgo(postData.createdAt),
               likedByCurrentUser: likeStatusMap.get(doc.id) || false,
               likesCount: postData.likesCount || 0,
@@ -175,9 +192,58 @@ export default function FeedScreen({ navigation }) {
           setLoading(false); // Stop loading once posts are processed
         });
       } else {
-        // If user follows no one, set posts to empty and stop loading
-        setPosts([]);
-        setLoading(false);
+        // If user follows no one, still fetch their own posts
+        const postsQuery = query(
+          collection(db, 'posts'),
+          where('userId', '==', currentUser.uid),
+          orderBy('createdAt', 'desc'),
+          limit(25)
+        );
+        
+        unsubscribePosts = onSnapshot(postsQuery, async (querySnapshot) => {
+          const postDocs = querySnapshot.docs;
+          if (postDocs.length === 0) {
+            setPosts([]);
+            setLoading(false);
+            return;
+          }
+
+          const postIds = postDocs.map(d => d.id);
+          const likeCheckPromises = postIds.map(id =>
+            getDoc(doc(db, 'posts', id, 'likes', currentUser.uid))
+          );
+          const likeDocs = await Promise.all(likeCheckPromises);
+          const likeStatusMap = new Map();
+          likeDocs.forEach((likeDoc, index) => {
+            likeStatusMap.set(postIds[index], likeDoc.exists());
+          });
+
+          const fetchedPosts = postDocs.map(doc => {
+            const postData = doc.data();
+            return {
+              id: doc.id,
+              ...postData,
+              user: { 
+                id: postData.userId, 
+                name: postData.userName, 
+                username: postData.userUsername,
+                avatar: postData.userAvatar 
+              },
+              date: getTimeAgo(postData.createdAt),
+              likedByCurrentUser: likeStatusMap.get(doc.id) || false,
+              likesCount: postData.likesCount || 0,
+            };
+          });
+
+          if (fetchedPosts.length > 0) {
+            setPostsCleared(false);
+            clearAnimation.setValue(0);
+            clearedOpacity.setValue(0);
+          }
+          
+          setPosts(fetchedPosts);
+          setLoading(false);
+        });
       }
 
       // --- STORIES LOGIC: Fetch stories from followed users AND the current user
@@ -339,6 +405,44 @@ export default function FeedScreen({ navigation }) {
     }
   };
 
+  const handleDeletePost = async (postId) => {
+    if (!currentUser) return;
+
+    Alert.alert(
+      "Delete Post",
+      "Are you sure you want to delete this post? This action cannot be undone.",
+      [
+        {
+          text: "Cancel",
+          style: "cancel"
+        },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              // Remove the post from the local state immediately for better UX
+              setPosts(currentPosts => currentPosts.filter(p => p.id !== postId));
+              
+              // Delete from Firebase
+              const postRef = doc(db, 'posts', postId);
+              await deleteDoc(postRef);
+              
+              // Haptic feedback for successful deletion
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            } catch (error) {
+              console.error("Error deleting post:", error);
+              Alert.alert("Error", "Couldn't delete the post. Please try again.");
+              
+              // Refresh posts to restore the deleted post if deletion failed
+              // This will be handled by the existing Firebase listener
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const handleHoldComplete = () => {
     // --- HAPTICS: Trigger success feedback on hold completion
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -461,6 +565,42 @@ export default function FeedScreen({ navigation }) {
     }
   };
 
+  // Show system menu for post actions
+  const showPostActions = (postId) => {
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Delete', 'Cancel'],
+          destructiveButtonIndex: 0,
+          cancelButtonIndex: 1,
+        },
+        (buttonIndex) => {
+          if (buttonIndex === 0) {
+            handleDeletePost(postId);
+          }
+        }
+      );
+    } else {
+      // Fallback for Android: simple Alert
+      Alert.alert(
+        'Post Options',
+        '',
+        [
+          { text: 'Delete', style: 'destructive', onPress: () => handleDeletePost(postId) },
+          { text: 'Cancel', style: 'cancel' },
+        ]
+      );
+    }
+  };
+
+  const openCommentsSheet = (post) => {
+    setSelectedPostForComments(post);
+    setCommentsSheetVisible(true);
+  };
+  const closeCommentsSheet = () => {
+    setCommentsSheetVisible(false);
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
@@ -534,22 +674,37 @@ export default function FeedScreen({ navigation }) {
         transform: [{ translateY: postTranslateY }]
       }}>
         <View style={styles.postCard}>
-          <Pressable
-            style={styles.postHeader}
-            onPress={() => {
-              if (post.user.id === currentUser.uid) {
-                navigation.navigate('Profile', { userId: currentUser.uid });
-              } else {
-                navigation.navigate('ProfileModal', { userId: post.user.id });
-              }
-            }}
-          >
-            <Image source={{ uri: post.user.avatar }} style={styles.avatar} />
-            <View style={styles.postHeaderTextRow}>
-              <Text style={styles.postUsername}>{post.user.name}</Text>
-              <Text style={styles.postDate}>{post.date}</Text>
-            </View>
-          </Pressable>
+          <View style={styles.postHeader}>
+            <Pressable
+              style={styles.postHeaderLeft}
+              onPress={() => {
+                if (post.user.id === currentUser.uid) {
+                  navigation.navigate('Profile', { userId: currentUser.uid });
+                } else {
+                  navigation.navigate('ProfileModal', { userId: post.user.id });
+                }
+              }}
+            >
+              <Image source={{ uri: post.user.avatar }} style={styles.avatar} />
+              <View style={styles.postHeaderTextRow}>
+                <View style={styles.postHeaderNameContainer}>
+                  <Text style={styles.postUsername}>{post.user.name}</Text>
+                  {post.user.username && (
+                    <Text style={styles.postUsernameHandle}> (@{post.user.username})</Text>
+                  )}
+                </View>
+                <Text style={styles.postDate}>{post.date}</Text>
+              </View>
+            </Pressable>
+            {post.user.id === currentUser.uid && (
+              <Pressable 
+                style={styles.threeDotsButton}
+                onPress={() => showPostActions(post.id)}
+              >
+                <Ionicons name="ellipsis-horizontal" size={18} color="#333" />
+              </Pressable>
+            )}
+          </View>
           <View style={styles.postImageContainer}>
             <Pressable onPress={handleDoubleTap}>
               <Image source={{ uri: post.imageUri }} style={styles.postImage} />
@@ -588,7 +743,7 @@ export default function FeedScreen({ navigation }) {
             </Pressable>
             <Pressable 
               style={styles.actionButton}
-              onPress={() => navigation.navigate('PostDetail', { post })}
+              onPress={() => openCommentsSheet(post)}
             >
               <Ionicons name="chatbubble-outline" size={28} color="#333" />
             </Pressable>
@@ -600,7 +755,7 @@ export default function FeedScreen({ navigation }) {
           )}
           <Pressable
             style={styles.commentsBtn}
-            onPress={() => navigation.navigate('PostDetail', { post })}
+            onPress={() => openCommentsSheet(post)}
           >
             <Text style={styles.commentsText}>View comments ({post.commentsCount || 0})</Text>
           </Pressable>
@@ -610,20 +765,58 @@ export default function FeedScreen({ navigation }) {
   };
 
   const renderNotification = ({ item: notification }) => {
-    let name, profileId, avatarUri, timeAgo;
+    const timeAgo = getTimeAgo(notification.createdAt);
+
+    // --- RENDER COMMENT/REPLY NOTIFICATIONS ---
+    if (['comment_on_post', 'reply_on_post', 'reply_on_comment'].includes(notification.type)) {
+        let message = '';
+        const commentPreview = notification.commentText ? `: "${notification.commentText}"` : '.';
+        
+        if (notification.type === 'reply_on_comment') {
+            message = ` replied to your comment${commentPreview}`;
+        } else {
+            message = ` commented on your post${commentPreview}`;
+        }
+
+        return (
+            <Pressable 
+                style={styles.notificationCardWithImage}
+                onPress={() => navigation.navigate('UserPostsFeed', { 
+                    userId: notification.postOwnerId, 
+                    initialPost: { id: notification.postId } 
+                })}
+            >
+                <View style={styles.requestUserInfo}>
+                    <Pressable onPress={() => navigation.navigate('ProfileModal', { userId: notification.actorId })}>
+                        <Image source={notification.actorAvatar ? { uri: notification.actorAvatar } : defaultProfilePhoto} style={styles.requestAvatar} />
+                    </Pressable>
+                    <View style={styles.requestTextContainer}>
+                        <Text style={styles.requestText} numberOfLines={2}>
+                            <Text style={styles.requestName}>{notification.actorName}</Text>
+                            {message}
+                            <Text style={styles.requestTime}> {timeAgo}</Text>
+                        </Text>
+                    </View>
+                </View>
+                <Image source={{ uri: notification.postImageUri }} style={styles.notificationPostImage} /> 
+            </Pressable>
+        );
+    }
+
+
+    // --- RENDER FOLLOW NOTIFICATIONS (Existing Logic, adapted) ---
+    let username, profileId, avatarUri;
     const hasActions = notification.type === 'follow_request';
   
     if (notification.type === 'follow_request') {
-      name = notification.requesterName || 'A user';
+      username = notification.requesterUsername || notification.requesterName || 'A user';
       profileId = notification.id;
       avatarUri = notification.requesterAvatar;
-      timeAgo = getTimeAgo(notification.createdAt);
     } else if (notification.type === 'follow_accepted') {
-      name = notification.acceptorName || 'A user';
+      username = notification.acceptorUsername || notification.acceptorName || 'A user';
       profileId = notification.acceptorId;
       avatarUri = notification.acceptorAvatar;
-      timeAgo = getTimeAgo(notification.createdAt);
-    } else {
+    } else if (notification.type) { // Render nothing if type is unknown or missing
       return null;
     }
   
@@ -639,7 +832,7 @@ export default function FeedScreen({ navigation }) {
           />
           <View style={styles.requestTextContainer}>
             <Text style={styles.requestText}>
-              <Text style={styles.requestName}>{name}</Text>
+              <Text style={styles.requestUsername}>{username}</Text>
               {notification.type === 'follow_request' 
                 ? ' requested to follow you.'
                 : ' accepted your follow request.'}
@@ -709,6 +902,32 @@ export default function FeedScreen({ navigation }) {
     }
     
     // For notifications section
+    if (type === 'notifications') {
+      return (
+        <View style={styles.sectionHeaderContainer}>
+          <Text style={styles.sectionHeader}>{title}</Text>
+          <View style={styles.filterContainer}>
+            <Pressable 
+              style={styles.filterButton}
+              onPress={() => {
+                // Clear all notifications except follow requests
+                setNotifications(prev => prev.filter(notification => notification.type === 'follow_request'));
+              }}
+            >
+              <Text style={styles.filterText}>Clear</Text>
+              <MaterialIcons 
+                name="clear" 
+                size={24} 
+                marginTop={3}
+                color="#8BA637" 
+              />
+            </Pressable>
+          </View>
+        </View>
+      );
+    }
+    
+    // For other sections
     return (
       <View style={styles.sectionHeaderContainer}>
         <Text style={styles.sectionHeader}>{title}</Text>
@@ -819,6 +1038,15 @@ export default function FeedScreen({ navigation }) {
         onScroll={handleScroll}
         scrollEventThrottle={16}
       />
+      {selectedPostForComments && (
+        <CommentsBottomSheet
+          isVisible={isCommentsSheetVisible}
+          onClose={closeCommentsSheet}
+          post={selectedPostForComments}
+          navigation={navigation}
+          closeCommentsSheet={closeCommentsSheet}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -905,7 +1133,7 @@ const styles = StyleSheet.create({
     color: '#333',
     flexShrink: 1,
   },
-  requestName: {
+  requestUsername: {
     color: '#333',
   },
   requestTime: {
@@ -936,6 +1164,20 @@ const styles = StyleSheet.create({
     color: '#53544D',
     fontFamily: 'PatrickHand-Regular',
     fontSize: 14,
+  },
+  notificationCardWithImage: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingLeft: 20,
+    paddingRight: 15, // A bit less padding on the right for the image
+    backgroundColor: '#FFFFFF',
+  },
+  notificationPostImage: {
+    width: 44,
+    height: 44,
+    borderRadius: 4,
   },
   storiesContainer: {
     paddingVertical: 10,
@@ -968,8 +1210,14 @@ const styles = StyleSheet.create({
   postHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingVertical: 12,
     paddingHorizontal: 20,
+  },
+  postHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
   },
   postHeaderTextRow: {
     flex: 1,
@@ -987,9 +1235,18 @@ const styles = StyleSheet.create({
     borderWidth: 0.2,
     borderColor: '#b9b9b9',
   },
+  postHeaderNameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   postUsername: {
     fontSize: 16,
     color: '#53544D',
+    fontFamily: 'PatrickHand-Regular',
+  },
+  postUsernameHandle: {
+    fontSize: 16,
+    color: '#b9b9b9',
     fontFamily: 'PatrickHand-Regular',
   },
   postDate: {
@@ -1113,5 +1370,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 1,
+  },
+  threeDotsButton: {
+    paddingLeft: 15,
   },
 });
