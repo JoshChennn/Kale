@@ -133,8 +133,8 @@ export default function PostScreen({ route, navigation }) {
   };
 
   const handleCreatePost = async () => {
-    if (!selectedPhotos || selectedPhotos.length === 0) {
-      Alert.alert("No media", "Please select at least one photo or video to post.");
+    if ((!caption.trim() || caption.trim().length === 0) && (!selectedPhotos || selectedPhotos.length === 0)) {
+      Alert.alert("No content", "Please enter some text or select a photo/video to post.");
       return;
     }
     if (!currentUser || !currentUserData) {
@@ -144,15 +144,18 @@ export default function PostScreen({ route, navigation }) {
 
     setIsUploading(true);
     try {
-      const uploadedURLs = [];
-      for (const photoUri of selectedPhotos) {
-        const uploadedURL = await uploadFileAsync(photoUri);
-        uploadedURLs.push(uploadedURL);
+      let uploadedURLs = [];
+      let mediaType = 'text';
+      let imageUri = null;
+      if (selectedPhotos && selectedPhotos.length > 0) {
+        for (const photoUri of selectedPhotos) {
+          const uploadedURL = await uploadFileAsync(photoUri);
+          uploadedURLs.push(uploadedURL);
+        }
+        imageUri = uploadedURLs[0];
+        mediaType = selectedPhotos[0].toLowerCase().endsWith('.mp4') || 
+                   selectedPhotos[0].toLowerCase().endsWith('.mov') ? 'video' : 'image';
       }
-
-      // Determine media type
-      const mediaType = selectedPhotos[0].toLowerCase().endsWith('.mp4') || 
-                       selectedPhotos[0].toLowerCase().endsWith('.mov') ? 'video' : 'image';
 
       // Add post to Firestore
       const postDoc = await addDoc(collection(db, "posts"), {
@@ -160,7 +163,7 @@ export default function PostScreen({ route, navigation }) {
         userName: currentUserData.displayName,
         userUsername: currentUserData.username,
         userAvatar: currentUserData.photoURL,
-        imageUri: uploadedURLs[0], // Changed from mediaUri to imageUri to match FeedScreen
+        imageUri: imageUri || '',
         mediaType: mediaType,
         caption: caption.trim(),
         commentsCount: 0,
@@ -245,10 +248,10 @@ export default function PostScreen({ route, navigation }) {
           <TouchableOpacity 
             style={[
               styles.postButton, 
-              { opacity: (selectedPhotos.length > 0 && !isUploading) ? 1 : 0.5 }
+              { opacity: ((caption.trim().length > 0 || selectedPhotos.length > 0) && !isUploading) ? 1 : 0.5 }
             ]} 
             onPress={handleCreatePost}
-            disabled={selectedPhotos.length === 0 || isUploading}
+            disabled={(caption.trim().length === 0 && selectedPhotos.length === 0) || isUploading}
           >
             {isUploading ? (
               <ActivityIndicator size="small" color="#FFFFFF" />

@@ -702,6 +702,99 @@ export default function FeedScreen({ navigation }) {
       lastTap.current = now;
     };
 
+    if (!post.imageUri) {
+      // Text-only post
+      return (
+        <Animated.View style={{
+          opacity: postAndFooterOpacity,
+          transform: [{ translateY: postTranslateY }]
+        }}>
+          <View style={styles.postCard}>
+            <Pressable onPress={handleDoubleTap} style={styles.textPostPressable}>
+              <View style={styles.postHeader}>
+                <Pressable
+                  style={styles.postHeaderLeft}
+                  onPress={() => {
+                    if (post.user.id === currentUser.uid) {
+                      navigation.navigate('Profile', { userId: currentUser.uid });
+                    } else {
+                      navigation.navigate('ProfileModal', { userId: post.user.id });
+                    }
+                  }}
+                >
+                  <Image source={{ uri: post.user.avatar }} style={styles.avatar} />
+                  <View style={styles.postHeaderTextRow}>
+                    <View style={styles.postHeaderNameContainer}>
+                      <Text style={styles.postUsername}>{post.user.name}</Text>
+                      {post.user.username && (
+                        <Text style={styles.postUsernameHandle}> (@{post.user.username})</Text>
+                      )}
+                    </View>
+                    <Text style={styles.postDate}>{post.date}</Text>
+                  </View>
+                </Pressable>
+                {post.user.id === currentUser.uid && (
+                  <Pressable 
+                    style={styles.threeDotsButton}
+                    onPress={() => showPostActions(post.id)}
+                  >
+                    <Ionicons name="ellipsis-horizontal" size={18} color="#333" />
+                  </Pressable>
+                )}
+              </View>
+              <View style={styles.textOnlyCaptionContainer}>
+                <Text style={styles.textOnlyCaption}>{post.caption}</Text>
+              </View>
+              <Animated.View
+                style={[
+                  styles.heartContainer,
+                  {
+                    opacity: heartAnim,
+                    transform: [
+                      {
+                        scale: heartAnim.interpolate({
+                          inputRange: [0, 0.5, 1],
+                          outputRange: [0.5, 1.2, 1],
+                        }),
+                      },
+                    ],
+                  },
+                ]}
+              >
+                <Ionicons name="heart" size={90} color="#8BA637" />
+              </Animated.View>
+            </Pressable>
+            <View style={styles.actionButtonsContainer}>
+              <Pressable 
+                style={styles.actionButton}
+                onPress={() => handleLikeToggle(post.id, post.likedByCurrentUser)}
+              >
+                <Animated.View style={{ transform: [{ scale: likeButtonAnim }] }}>
+                  <Ionicons 
+                    name={post.likedByCurrentUser ? "heart" : "heart-outline"} 
+                    size={28} 
+                    color={post.likedByCurrentUser ? "#8BA637" : "#333"}
+                  />
+                </Animated.View>
+              </Pressable>
+              <Pressable 
+                style={styles.actionButton}
+                onPress={() => openCommentsSheet(post)}
+              >
+                <Ionicons name="chatbubble-outline" size={28} color="#333" />
+              </Pressable>
+            </View>
+            <Pressable
+              style={styles.commentsBtn}
+              onPress={() => openCommentsSheet(post)}
+            >
+              <Text style={styles.commentsText}>View comments ({post.commentsCount || 0})</Text>
+            </Pressable>
+          </View>
+        </Animated.View>
+      );
+    }
+
     return (
       <Animated.View style={{
         opacity: postAndFooterOpacity,
@@ -1482,6 +1575,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 1,
+    top: 0,
+    left: 0,
   },
   threeDotsButton: {
     paddingLeft: 15,
@@ -1497,5 +1592,21 @@ const styles = StyleSheet.create({
     color: '#53544D',
     fontFamily: 'PatrickHand-Regular',
     fontSize: 14,
+  },
+  textOnlyCaptionContainer: {
+    paddingHorizontal: 30,
+    paddingVertical: 20,
+    alignItems: 'left',
+    justifyContent: 'left',
+  },
+  textOnlyCaption: {
+    fontFamily: 'PatrickHand-Regular',
+    fontSize: 18,
+    color: '#53544D',
+    textAlign: 'left',
+    lineHeight: 27,
+  },
+  textPostPressable: {
+    flex: 1,
   },
 });

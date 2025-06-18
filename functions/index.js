@@ -230,15 +230,20 @@ exports.handleFollowRequest = functions.https.onCall(async (data, context) => {
         });
 
         // 2b. Create a notification for the acceptor ("[username] is now following you.")
-        const nowFollowingNotificationRef = db.collection("users").doc(currentUserId).collection("notifications").doc(requestingUserId + "_now_following_you");
-        batch.set(nowFollowingNotificationRef, {
-            type: 'now_following_you',
-            followerName: requesterData.displayName || "A user",
-            followerUsername: requesterData.username || null,
-            followerAvatar: requesterData.photoURL || null,
-            followerId: requestingUserId,
-            createdAt: admin.firestore.FieldValue.serverTimestamp()
-        });
+        // Only create if acceptor is NOT already following the requester
+        const acceptorFollowingRequesterRef = db.collection("following").doc(currentUserId).collection("userFollowing").doc(requestingUserId);
+        const acceptorFollowingRequesterDoc = await acceptorFollowingRequesterRef.get();
+        if (!acceptorFollowingRequesterDoc.exists) {
+          const nowFollowingNotificationRef = db.collection("users").doc(currentUserId).collection("notifications").doc(requestingUserId + "_now_following_you");
+          batch.set(nowFollowingNotificationRef, {
+              type: 'now_following_you',
+              followerName: requesterData.displayName || "A user",
+              followerUsername: requesterData.username || null,
+              followerAvatar: requesterData.photoURL || null,
+              followerId: requestingUserId,
+              createdAt: admin.firestore.FieldValue.serverTimestamp()
+          });
+        }
 
         // 3. Delete the original request from the current user's followRequests
         const requestDocRef = db.collection("users").doc(currentUserId)

@@ -162,11 +162,14 @@ export default function ProfileModal({ navigation, route }) {
     );
   }
 
-  const mappedPosts = userPosts.map(p => ({
-    ...p,
-    user: { id: p.userId, name: p.userName, avatar: p.userAvatar },
-    date: p.createdAt ? p.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'someday'
-  }));
+  // Only show posts with a non-empty imageUri in the grid list
+  const mappedPosts = userPosts
+    .filter(p => p.imageUri && p.imageUri.trim() !== '')
+    .map(p => ({
+      ...p,
+      user: { id: p.userId, name: p.userName, avatar: p.userAvatar },
+      date: p.createdAt ? p.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'someday'
+    }));
 
   const renderFollowButton = () => {
     if (isFollowing) {
