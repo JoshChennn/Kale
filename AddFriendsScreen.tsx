@@ -18,6 +18,7 @@ import * as SMS from 'expo-sms';
 import { auth, db } from './firebaseConfig';
 import { User as FirebaseUser } from 'firebase/auth';
 import { MaterialIcons } from '@expo/vector-icons';
+import { httpsCallable } from 'firebase/functions';
 
 // Param list for the OnboardingStack to match App.tsx
 type OnboardingStackParamList = {
@@ -66,6 +67,27 @@ const MINIMUM_FOLLOW_INVITE = 0;
 const getInviteMessage = (firstName: string) => 
   `${firstName} requested to follow you on Kale. Accept it: [Your App Link Here]`;
 
+// Add at the top, after type definitions:
+type FollowRequest = {
+  id: string;
+  requesterName?: string;
+  requesterAvatar?: string;
+  requesterUsername?: string;
+};
+
+type FriendSection = {
+  title: string;
+  data: (DisplayUser | NonKaleContact)[];
+};
+
+type FollowRequestSection = {
+  title: string;
+  data: FollowRequest[];
+  isFollowRequests: true;
+};
+
+type SectionType = FriendSection | FollowRequestSection;
+
 export default function AddFriendsScreen({ onOnboardingComplete }: Props) {
   const [loading, setLoading] = React.useState(true);
   const [sections, setSections] = React.useState<
@@ -78,6 +100,10 @@ export default function AddFriendsScreen({ onOnboardingComplete }: Props) {
   const [ellipsisState, setEllipsisState] = React.useState(0);
   const [isHelpModalVisible, setHelpModalVisible] = React.useState(false);
   const scaleAnim = React.useRef(new Animated.Value(0)).current;
+  const [followRequests, setFollowRequests] = React.useState<any[]>([]);
+  const [loadingRequests, setLoadingRequests] = React.useState(true);
+  const functions = require('./firebaseConfig').functions;
+  const handleFollowRequest = httpsCallable(functions, 'handleFollowRequest');
 
   const showHelpModal = () => {
     setHelpModalVisible(true);
@@ -129,6 +155,43 @@ export default function AddFriendsScreen({ onOnboardingComplete }: Props) {
     
     fetchUserData();
   }, [currentUser]);
+
+  // Listen for follow requests
+  React.useEffect(() => {
+    if (!currentUser) return;
+    setLoadingRequests(true);
+    const unsubscribe = db
+      .collection('users')
+      .doc(currentUser.uid)
+      .collection('followRequests')
+      .onSnapshot((snapshot: any) => {
+        const requests = snapshot.docs.map((doc: any) => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
+        setFollowRequests(requests);
+        setLoadingRequests(false);
+      });
+    return () => unsubscribe();
+  }, [currentUser]);
+
+  // Accept/Ignore handlers
+  const onAcceptRequest = async (requesterId: string) => {
+    setFollowRequests(prev => prev.filter(req => req.id !== requesterId));
+    try {
+      await handleFollowRequest({ requestingUserId: requesterId, action: 'accept' });
+    } catch (error) {
+      Alert.alert('Error', 'Could not accept request. Please try again.');
+    }
+  };
+  const onIgnoreRequest = async (requesterId: string) => {
+    setFollowRequests(prev => prev.filter(req => req.id !== requesterId));
+    try {
+      await handleFollowRequest({ requestingUserId: requesterId, action: 'ignore' });
+    } catch (error) {
+      Alert.alert('Error', 'Could not ignore request. Please try again.');
+    }
+  };
 
   // Main effect to fetch contacts, sync with Firestore, and handle automatic follows
   React.useEffect(() => {
@@ -431,6 +494,59 @@ export default function AddFriendsScreen({ onOnboardingComplete }: Props) {
     );
   };
 
+  // Filter out users from 'Already On Kale' who are in followRequests
+  let filteredSections: SectionType[] = [...sections];
+  if (followRequests.length > 0) {
+    // Get all follow request user ids
+    const followRequestIds = new Set(followRequests.map(req => req.id));
+    filteredSections = sections.map(section => {
+      if (section.title === 'Already On Kale') {
+        return {
+          ...section,
+          data: section.data.filter((user: any) => {
+            // Only filter DisplayUser (Kale users)
+            return !(user.uid && followRequestIds.has(user.uid));
+          })
+        };
+      }
+      return section;
+    });
+    filteredSections = [
+      { title: 'Follow Requests', data: followRequests, isFollowRequests: true },
+      ...filteredSections,
+    ];
+  }
+  let displaySections = filteredSections;
+
+  const renderFollowRequestItem = ({ item }: { item: any }) => (
+    <View style={styles.requestCard}>
+      <View style={styles.requestUserInfo}>
+        <Image
+          source={item.requesterAvatar ? { uri: item.requesterAvatar } : require('./assets/default-profile-photo.png')}
+          style={styles.profileImage}
+        />
+        <View style={styles.requestTextContainer}>
+          <Text style={styles.contactName} numberOfLines={1}>
+            {item.requesterName || item.requesterUsername || 'A user'}
+          </Text>
+          {item.requesterUsername && (
+            <Text style={styles.contactDetail} numberOfLines={1}>
+              @{item.requesterUsername}
+            </Text>
+          )}
+        </View>
+      </View>
+      <View style={styles.requestActions}>
+        <Pressable style={styles.acceptButton} onPress={() => onAcceptRequest(item.id)}>
+          <Text style={styles.acceptButtonText}>Accept</Text>
+        </Pressable>
+        <Pressable style={styles.ignoreButton} onPress={() => onIgnoreRequest(item.id)}>
+          <Text style={styles.ignoreButtonText}>Ignore</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+
   if (loading) {
       return (
         <View style={styles.container}>
@@ -595,18 +711,27 @@ export default function AddFriendsScreen({ onOnboardingComplete }: Props) {
         </View>
 
         <SectionList
-            sections={sections}
-            keyExtractor={(item) => (item as DisplayUser).uid || (item as NonKaleContact).id}
-            renderItem={renderItem}
-            renderSectionHeader={({ section: { title } }) => (
-                <Text style={styles.sectionHeader}>{title}</Text>
+            sections={displaySections as any[]}
+            keyExtractor={(item, index) => {
+              if ('uid' in item && item.uid) return String(item.uid);
+              if ('id' in item && item.id) return String(item.id);
+              return String(index);
+            }}
+            renderItem={({ item, section }: { item: any; section: SectionType }) => {
+              if ('isFollowRequests' in section && section.isFollowRequests) {
+                return renderFollowRequestItem({ item });
+              }
+              return renderItem({ item, section });
+            }}
+            renderSectionHeader={({ section }: { section: SectionType }) => (
+              <Text style={styles.sectionHeader}>{section.title}</Text>
             )}
             contentContainerStyle={{ paddingHorizontal: 20 }}
             ListEmptyComponent={() => (
-                <View style={styles.emptyContainer}>
-                    <Text style={styles.emptyText}>No contacts found.</Text>
-                    <Text style={styles.emptySubText}>Please enable contact permissions in your phone's settings to find friends.</Text>
-                </View>
+              <View style={styles.emptyContainer}>
+                <Text style={styles.emptyText}>No contacts found.</Text>
+                <Text style={styles.emptySubText}>Please enable contact permissions in your phone's settings to find friends.</Text>
+              </View>
             )}
         />
         
@@ -630,7 +755,7 @@ export default function AddFriendsScreen({ onOnboardingComplete }: Props) {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#F2F2F2',
+        backgroundColor: '#FFFFFF',
         justifyContent: 'center',
     },
     header: {
@@ -670,7 +795,7 @@ const styles = StyleSheet.create({
         fontSize: 20,
         fontFamily: 'PatrickHand-Regular',
         color: '#8BA637',
-        backgroundColor: '#F2F2F2',
+        backgroundColor: '#FFFFFF',
         paddingTop: 20,
         paddingBottom: 10,
     },
@@ -679,8 +804,8 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         alignItems: 'center',
         paddingVertical: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: '#E9E9E9',
+        borderBottomWidth: 0,
+        borderBottomColor: 'transparent',
     },
     profileImage: {
         width: 44,
@@ -820,12 +945,12 @@ const styles = StyleSheet.create({
     },
     mockupContainer: {
         width: '100%',
-        backgroundColor: '#F9F9F9',
+        backgroundColor: '#FFFFFF',
         borderRadius: 8,
         padding: 10,
         marginBottom: 15,
         borderWidth: 1,
-        borderColor: '#EFEFEF',
+        borderColor: '#FFFFFF',
     },
     mockupRow: {
         flexDirection: 'row',
@@ -1055,5 +1180,53 @@ const styles = StyleSheet.create({
         fontFamily: 'PatrickHand-Regular',
         fontSize: 20,
         textAlign: 'center',
+    },
+    requestCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingVertical: 12,
+        paddingHorizontal: 0,
+        backgroundColor: '#FFFFFF',
+        marginBottom: 2,
+    },
+    requestUserInfo: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flex: 1,
+        marginRight: 10,
+    },
+    requestTextContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        marginLeft: 4,
+        paddingRight: 20,
+        maxWidth: '70%',
+    },
+    requestActions: {
+        flexDirection: 'row',
+    },
+    acceptButton: {
+        backgroundColor: '#8BA637',
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        borderRadius: 5,
+        marginRight: 8,
+    },
+    acceptButtonText: {
+        color: '#FFFFFF',
+        fontFamily: 'PatrickHand-Regular',
+        fontSize: 14,
+    },
+    ignoreButton: {
+        backgroundColor: '#e6e6e6',
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        borderRadius: 5,
+    },
+    ignoreButtonText: {
+        color: '#53544D',
+        fontFamily: 'PatrickHand-Regular',
+        fontSize: 14,
     },
 });

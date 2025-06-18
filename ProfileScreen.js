@@ -205,7 +205,7 @@ export default function ProfileScreen({ navigation, route }) {
                   style={styles.addFriendsProfileButton} 
                   onPress={() => navigation.navigate('AddMoreFriends')}
                 >
-                  <Text style={styles.addFriendsProfileButtonText}>Add friends</Text>
+                  <Text style={styles.addFriendsProfileButtonText}>Find friends</Text>
                 </Pressable>
               </>
             ) : (

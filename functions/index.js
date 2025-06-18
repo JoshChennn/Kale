@@ -204,6 +204,13 @@ exports.handleFollowRequest = functions.https.onCall(async (data, context) => {
         }
         const currentUserData = currentUserDoc.data();
 
+        // Get the requester data for the notification
+        const requesterDoc = await db.collection("users").doc(requestingUserId).get();
+        if (!requesterDoc.exists) {
+            throw new functions.https.HttpsError("not-found", "Requesting user profile not found.");
+        }
+        const requesterData = requesterDoc.data();
+
         // 1. Create following/follower relationship
         const followingRef = db.collection("following").doc(requestingUserId).collection("userFollowing").doc(currentUserId);
         batch.set(followingRef, { createdAt: admin.firestore.FieldValue.serverTimestamp() });
@@ -211,7 +218,7 @@ exports.handleFollowRequest = functions.https.onCall(async (data, context) => {
         const followerRef = db.collection("followers").doc(currentUserId).collection("userFollowers").doc(requestingUserId);
         batch.set(followerRef, { createdAt: admin.firestore.FieldValue.serverTimestamp() });
 
-        // 2. Create a notification for the requester
+        // 2. Create a notification for the requester ("Your request was accepted")
         const notificationRef = db.collection("users").doc(requestingUserId).collection("notifications").doc(currentUserId);
         batch.set(notificationRef, {
             type: 'follow_accepted',
@@ -219,6 +226,17 @@ exports.handleFollowRequest = functions.https.onCall(async (data, context) => {
             acceptorUsername: currentUserData.username || null,
             acceptorAvatar: currentUserData.photoURL || null,
             acceptorId: currentUserId,
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        // 2b. Create a notification for the acceptor ("[username] is now following you.")
+        const nowFollowingNotificationRef = db.collection("users").doc(currentUserId).collection("notifications").doc(requestingUserId + "_now_following_you");
+        batch.set(nowFollowingNotificationRef, {
+            type: 'now_following_you',
+            followerName: requesterData.displayName || "A user",
+            followerUsername: requesterData.username || null,
+            followerAvatar: requesterData.photoURL || null,
+            followerId: requestingUserId,
             createdAt: admin.firestore.FieldValue.serverTimestamp()
         });
 

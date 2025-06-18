@@ -32,6 +32,7 @@ import {
   increment,
   getDoc,
   deleteDoc,
+  batch,
 } from 'firebase/firestore';
 import defaultProfilePhoto from './assets/default-profile-photo.png';
 import * as Haptics from 'expo-haptics'; // --- HAPTICS: Import the library
@@ -314,6 +315,20 @@ export default function FeedScreen({ navigation }) {
     setNotifications(prev => prev.filter(req => req.id !== requesterId));
     try {
       await handleFollowRequest({ requestingUserId: requesterId, action: 'accept' });
+      // Force refresh notifications instantly after accepting
+      if (currentUser) {
+        const notificationsQuery = query(
+          collection(db, 'users', currentUser.uid, 'notifications'),
+          orderBy('createdAt', 'desc'),
+          limit(30)
+        );
+        const querySnapshot = await getDocs(notificationsQuery);
+        const newNotifications = querySnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
+        setNotifications(newNotifications);
+      }
     } catch (error) {
       console.error("Error accepting request:", error);
       Alert.alert("Error", "Could not accept request. Please try again.");
@@ -601,6 +616,25 @@ export default function FeedScreen({ navigation }) {
     setCommentsSheetVisible(false);
   };
 
+  const clearNonFollowRequestNotifications = async () => {
+    if (!currentUser) return;
+    try {
+      // Filter out follow_request notifications
+      const notificationsToDelete = notifications.filter(n => n.type !== 'follow_request');
+      const batch = db.batch();
+      notificationsToDelete.forEach(n => {
+        const notifRef = doc(db, 'users', currentUser.uid, 'notifications', n.id);
+        batch.delete(notifRef);
+      });
+      await batch.commit();
+      // Update local state to only keep follow requests
+      setNotifications(prev => prev.filter(n => n.type === 'follow_request'));
+    } catch (error) {
+      console.error('Error clearing notifications:', error);
+      Alert.alert('Error', 'Could not clear notifications. Please try again.');
+    }
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
@@ -767,6 +801,26 @@ export default function FeedScreen({ navigation }) {
   const renderNotification = ({ item: notification }) => {
     const timeAgo = getTimeAgo(notification.createdAt);
 
+    // At the top of renderNotification (before any if/return)
+    const [isFollowing, setIsFollowing] = React.useState(false);
+    const [hasRequested, setHasRequested] = React.useState(false);
+
+    React.useEffect(() => {
+      if (!notification.followerId || !auth.currentUser) return;
+      const followingDocRef = doc(db, 'following', auth.currentUser.uid, 'userFollowing', notification.followerId);
+      const unsubscribe = onSnapshot(followingDocRef, (docSnap) => {
+        setIsFollowing(docSnap.exists());
+      });
+      const requestDocRef = doc(db, 'users', notification.followerId, 'followRequests', auth.currentUser.uid);
+      const unsubscribeRequest = onSnapshot(requestDocRef, (docSnap) => {
+        setHasRequested(docSnap.exists());
+      });
+      return () => {
+        unsubscribe();
+        unsubscribeRequest();
+      };
+    }, [notification.followerId]);
+
     // --- RENDER COMMENT/REPLY NOTIFICATIONS ---
     if (['comment_on_post', 'reply_on_post', 'reply_on_comment'].includes(notification.type)) {
         let message = '';
@@ -803,6 +857,64 @@ export default function FeedScreen({ navigation }) {
         );
     }
 
+    // --- RENDER "now_following_you" NOTIFICATION ---
+    if (notification.type === 'now_following_you') {
+      const handleFollowBack = async () => {
+        if (!auth.currentUser || isFollowing || hasRequested) return;
+        setHasRequested(true); // Optimistic update
+        try {
+          await httpsCallable(functions, 'requestToFollowUser')({ userIdToFollow: notification.followerId });
+        } catch (e) {
+          setHasRequested(false);
+          Alert.alert('Error', 'Could not follow back. Please try again.');
+        }
+      };
+
+      const handleWithdrawRequest = async () => {
+        if (!auth.currentUser || !hasRequested) return;
+        setHasRequested(false); // Optimistic update
+        try {
+          await httpsCallable(functions, 'withdrawFollowRequest')({ userIdToWithdrawFrom: notification.followerId });
+        } catch (e) {
+          setHasRequested(true);
+          Alert.alert('Error', 'Could not withdraw request. Please try again.');
+        }
+      };
+
+      return (
+        <View style={styles.requestCard}>
+          <Pressable
+            style={styles.requestUserInfo}
+            onPress={() => navigation.navigate('ProfileModal', { userId: notification.followerId })}
+          >
+            <Image
+              source={notification.followerAvatar ? { uri: notification.followerAvatar } : defaultProfilePhoto}
+              style={styles.requestAvatar}
+            />
+            <View style={styles.requestTextContainer}>
+              <Text style={styles.requestText}>
+                <Text style={styles.requestUsername}>{notification.followerUsername ? notification.followerUsername : notification.followerName || 'A user'}</Text>
+                {` is now following you.`}
+                <Text style={styles.requestTime}> {timeAgo}</Text>
+              </Text>
+            </View>
+          </Pressable>
+          {!isFollowing && (
+            <View style={styles.requestActions}>
+              {hasRequested ? (
+                <Pressable style={styles.requestedButton} onPress={handleWithdrawRequest}>
+                  <Text style={styles.requestedButtonText}>Requested</Text>
+                </Pressable>
+              ) : (
+                <Pressable style={styles.acceptButton} onPress={handleFollowBack}>
+                  <Text style={styles.acceptButtonText}>Follow Back</Text>
+                </Pressable>
+              )}
+            </View>
+          )}
+        </View>
+      );
+    }
 
     // --- RENDER FOLLOW NOTIFICATIONS (Existing Logic, adapted) ---
     let username, profileId, avatarUri;
@@ -903,25 +1015,25 @@ export default function FeedScreen({ navigation }) {
     
     // For notifications section
     if (type === 'notifications') {
+      const hasNonFollowRequest = notifications.some(n => n.type !== 'follow_request');
       return (
         <View style={styles.sectionHeaderContainer}>
           <Text style={styles.sectionHeader}>{title}</Text>
           <View style={styles.filterContainer}>
-            <Pressable 
-              style={styles.filterButton}
-              onPress={() => {
-                // Clear all notifications except follow requests
-                setNotifications(prev => prev.filter(notification => notification.type === 'follow_request'));
-              }}
-            >
-              <Text style={styles.filterText}>Clear</Text>
-              <MaterialIcons 
-                name="clear" 
-                size={24} 
-                marginTop={3}
-                color="#8BA637" 
-              />
-            </Pressable>
+            {hasNonFollowRequest && (
+              <Pressable 
+                style={styles.filterButton}
+                onPress={clearNonFollowRequestNotifications}
+              >
+                <Text style={styles.filterText}>Clear</Text>
+                <MaterialIcons 
+                  name="clear" 
+                  size={24} 
+                  marginTop={3}
+                  color="#8BA637" 
+                />
+              </Pressable>
+            )}
           </View>
         </View>
       );
@@ -1124,13 +1236,13 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     marginLeft: 4,
-    paddingRight: 20,
+    paddingRight: 10,
     maxWidth: '70%',
   },
   requestText: {
     fontFamily: 'PatrickHand-Regular',
     fontSize: 16,
-    color: '#333',
+    color: '#53544D',
     flexShrink: 1,
   },
   requestUsername: {
@@ -1147,7 +1259,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 5,
-    marginRight: 8,
   },
   acceptButtonText: {
     color: '#FFFFFF',
@@ -1159,6 +1270,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 5,
+    marginLeft: 10,
   },
   ignoreButtonText: {
     color: '#53544D',
@@ -1171,7 +1283,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 12,
     paddingLeft: 20,
-    paddingRight: 15, // A bit less padding on the right for the image
+    paddingRight: 20, // A bit less padding on the right for the image
     backgroundColor: '#FFFFFF',
   },
   notificationPostImage: {
@@ -1373,5 +1485,17 @@ const styles = StyleSheet.create({
   },
   threeDotsButton: {
     paddingLeft: 15,
+  },
+  requestedButton: {
+    backgroundColor: '#e6e6e6',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 5,
+    marginRight: 0,
+  },
+  requestedButtonText: {
+    color: '#53544D',
+    fontFamily: 'PatrickHand-Regular',
+    fontSize: 14,
   },
 });

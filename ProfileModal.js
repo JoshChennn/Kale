@@ -21,6 +21,7 @@ export default function ProfileModal({ navigation, route }) {
   const [userPosts, setUserPosts] = useState([]);
   const [isFollowing, setIsFollowing] = useState(false);
   const [hasRequested, setHasRequested] = useState(false); // New state for follow requests
+  const [isFollowedBy, setIsFollowedBy] = useState(false); // New state for if profile user follows current user
   const [loading, setLoading] = useState(true);
 
   // Cloud Functions
@@ -42,6 +43,7 @@ export default function ProfileModal({ navigation, route }) {
 
     let unsubscribeFollowing = () => {};
     let unsubscribeRequest = () => {};
+    let unsubscribeFollowedBy = () => {};
     if (!isCurrentUser && currentUserId) {
       // Check if current user is following this profile
       const followingDocRef = doc(db, 'following', currentUserId, 'userFollowing', userId);
@@ -54,12 +56,19 @@ export default function ProfileModal({ navigation, route }) {
       unsubscribeRequest = onSnapshot(requestDocRef, (docSnap) => {
         setHasRequested(docSnap.exists());
       });
+
+      // Check if profile user is following the current user (for 'Follow Back')
+      const followedByDocRef = doc(db, 'followers', currentUserId, 'userFollowers', userId);
+      unsubscribeFollowedBy = onSnapshot(followedByDocRef, (docSnap) => {
+        setIsFollowedBy(docSnap.exists());
+      });
     }
 
     return () => {
       unsubscribeUser();
       unsubscribeFollowing();
       unsubscribeRequest();
+      unsubscribeFollowedBy();
     };
   }, [userId, currentUserId, isCurrentUser]);
 
@@ -159,6 +168,13 @@ export default function ProfileModal({ navigation, route }) {
       return (
         <Pressable style={styles.requestedButton} onPress={handleWithdrawRequest}>
           <Text style={styles.requestedButtonText}>Requested</Text>
+        </Pressable>
+      );
+    }
+    if (isFollowedBy) {
+      return (
+        <Pressable style={styles.addFriendButton} onPress={handleRequestFollow}>
+          <Text style={styles.addFriendText}>Follow Back</Text>
         </Pressable>
       );
     }

@@ -722,7 +722,7 @@ export default function UserPostsFeed({ navigation, route }) {
             return {
               id: postDoc.id,
               ...postData,
-              user: { id: postData.userId, name: postData.userName, avatar: postData.userAvatar },
+              user: { id: postData.userId, name: postData.userName, username: postData.userUsername, avatar: postData.userAvatar },
               date: getTimeAgo(postData.createdAt).replace(' ago', ''),
               likedByCurrentUser: likedPostIds.has(postDoc.id),
             };
@@ -1010,7 +1010,12 @@ export default function UserPostsFeed({ navigation, route }) {
                 </Pressable>
                 <View style={styles.postHeaderTextRow}>
                   <Pressable onPress={() => handleProfilePress(post.user.id)}>
-                    <Text style={styles.postUsername}>{post.user.name}</Text>
+                    <Text style={styles.postUsername}>
+                      {post.user.name}
+                      {post.user.username && (
+                        <Text style={styles.postUsernameHandle}> (@{post.user.username})</Text>
+                      )}
+                    </Text>
                   </Pressable>
                   <Text style={styles.postDate}>{post.date}</Text>
                 </View>
@@ -1142,6 +1147,11 @@ const styles = StyleSheet.create({
   postUsername: {
     fontSize: 16,
     color: '#53544D',
+    fontFamily: 'PatrickHand-Regular',
+  },
+  postUsernameHandle: {
+    fontSize: 16,
+    color: '#b9b9b9',
     fontFamily: 'PatrickHand-Regular',
   },
   postDate: {
