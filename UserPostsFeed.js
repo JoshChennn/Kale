@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'; // ADDED: useMemo
 import {
-  View, StyleSheet, Image, SafeAreaView, Text, ScrollView, Dimensions, Pressable, ActivityIndicator, Animated, Modal, TextInput, KeyboardAvoidingView, Platform, FlatList, TouchableWithoutFeedback, Keyboard, PanResponder
+  View, StyleSheet, Image, SafeAreaView, Text, ScrollView, Dimensions, Pressable, ActivityIndicator, Animated, Modal, TextInput, KeyboardAvoidingView, Platform, FlatList, TouchableWithoutFeedback, Keyboard, PanResponder, Alert
 } from 'react-native';
 // ADDED: Import Swipeable from react-native-gesture-handler
 import { Swipeable } from 'react-native-gesture-handler';
@@ -40,7 +40,7 @@ const getTimeAgo = (timestamp) => {
 
 
 // --- START OF NEW CommentsBottomSheet COMPONENT ---
-const CommentsBottomSheet = ({ isVisible, onClose, post }) => {
+const CommentsBottomSheet = ({ isVisible, onClose, post, navigation, closeCommentsSheet }) => {
   const [comments, setComments] = useState([]);
   const [newComment, setNewComment] = useState('');
   const [loadingComments, setLoadingComments] = useState(true);
@@ -89,8 +89,25 @@ const CommentsBottomSheet = ({ isVisible, onClose, post }) => {
       }
     });
 
-    // Sort parent comments by date (newest first).
-    parents.sort((a, b) => b.createdAt.seconds - a.createdAt.seconds);
+    // MODIFIED: Sort parent comments by most recent activity (comment creation or latest reply)
+    parents.sort((a, b) => {
+      const aReplies = repliesMap.get(a.id) || [];
+      const bReplies = repliesMap.get(b.id) || [];
+      
+      // Get the most recent timestamp for each comment thread
+      const aLatestReply = aReplies.length > 0 
+        ? Math.max(...aReplies.map(reply => reply.createdAt.seconds))
+        : 0;
+      const bLatestReply = bReplies.length > 0 
+        ? Math.max(...bReplies.map(reply => reply.createdAt.seconds))
+        : 0;
+      
+      // Compare the most recent activity (either the comment itself or its latest reply)
+      const aMostRecent = Math.max(a.createdAt.seconds, aLatestReply);
+      const bMostRecent = Math.max(b.createdAt.seconds, bLatestReply);
+      
+      return bMostRecent - aMostRecent; // Newest first
+    });
 
     // Sort replies within each thread by date (oldest first for conversational flow).
     for (const replyList of repliesMap.values()) {
@@ -110,12 +127,14 @@ const CommentsBottomSheet = ({ isVisible, onClose, post }) => {
           setCurrentUserData({
             uid: user.uid,
             displayName: userDoc.data().name || user.displayName,
+            username: userDoc.data().username,
             photoURL: userDoc.data().profilePhoto || user.photoURL
           });
         } else {
           setCurrentUserData({
             uid: user.uid,
             displayName: user.displayName,
+            username: null,
             photoURL: user.photoURL
           });
         }
@@ -196,15 +215,27 @@ const CommentsBottomSheet = ({ isVisible, onClose, post }) => {
     const commentsRef = collection(db, 'posts', post.id, 'comments');
     const q = query(commentsRef, orderBy('createdAt', 'desc'));
 
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const fetchedComments = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        date: getTimeAgo(doc.data().createdAt),
-      }));
-      setComments(fetchedComments);
-      setLoadingComments(false);
-    }, (error) => { console.error("Error fetching comments:", error); setLoadingComments(false); });
+    const unsubscribe = onSnapshot(q, 
+      (querySnapshot) => {
+        const fetchedComments = querySnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          date: getTimeAgo(doc.data().createdAt),
+        }));
+        setComments(fetchedComments);
+        setLoadingComments(false);
+      }, 
+      (error) => { 
+        console.error("Error fetching comments:", error);
+        setLoadingComments(false);
+        // Show error to user
+        Alert.alert(
+          "Connection Error",
+          "There was an issue loading comments. Please try again.",
+          [{ text: "OK" }]
+        );
+      }
+    );
 
     return () => unsubscribe();
   }, [post]);
@@ -233,7 +264,7 @@ const CommentsBottomSheet = ({ isVisible, onClose, post }) => {
       const newCommentData = {
         text: commentText,
         userId: currentUserData.uid,
-        userName: currentUserData.displayName,
+        userName: currentUserData.username || currentUserData.displayName,
         userAvatar: currentUserData.photoURL,
         createdAt: Timestamp.now(),
       };
@@ -270,37 +301,66 @@ const CommentsBottomSheet = ({ isVisible, onClose, post }) => {
       return;
     }
 
-    // Identify all comments to be deleted (the comment itself + its replies if it's a parent)
-    const commentsToDeleteIds = [commentToDelete.id];
-    if (!commentToDelete.replyToCommentId) { // It's a parent comment
-      const replies = repliesByParent.get(commentToDelete.id) || [];
-      replies.forEach(reply => commentsToDeleteIds.push(reply.id));
-    }
-    
-    const postRef = doc(db, 'posts', post.id);
-    const commentsRef = collection(db, 'posts', post.id, 'comments');
+    // Show confirmation alert
+    Alert.alert(
+      "Delete Comment",
+      "Are you sure you want to delete this comment?",
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+          onPress: () => {
+            swipeableRefs.get(commentToDelete.id)?.close();
+          }
+        },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            // Identify all comments to be deleted (the comment itself + its replies if it's a parent)
+            const commentsToDeleteIds = [commentToDelete.id];
+            if (!commentToDelete.replyToCommentId) { // It's a parent comment
+              const replies = repliesByParent.get(commentToDelete.id) || [];
+              replies.forEach(reply => commentsToDeleteIds.push(reply.id));
+            }
+            
+            const postRef = doc(db, 'posts', post.id);
+            const commentsRef = collection(db, 'posts', post.id, 'comments');
 
-    try {
-      await runTransaction(db, async (transaction) => {
-        // Delete all the comment documents
-        for (const commentId of commentsToDeleteIds) {
-          const commentDocRef = doc(commentsRef, commentId);
-          transaction.delete(commentDocRef);
+            try {
+              await runTransaction(db, async (transaction) => {
+                // Delete all the comment documents
+                for (const commentId of commentsToDeleteIds) {
+                  const commentDocRef = doc(commentsRef, commentId);
+                  transaction.delete(commentDocRef);
+                }
+
+                // Decrement the commentsCount on the post
+                transaction.update(postRef, {
+                  commentsCount: increment(-commentsToDeleteIds.length)
+                });
+              });
+
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            } catch (error) {
+              console.error("Error deleting comment(s):", error);
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+            } finally {
+              // Ensure the swipeable row closes regardless of success or failure
+              swipeableRefs.get(commentToDelete.id)?.close();
+            }
+          }
         }
+      ]
+    );
+  };
 
-        // Decrement the commentsCount on the post
-        transaction.update(postRef, {
-          commentsCount: increment(-commentsToDeleteIds.length)
-        });
-      });
-
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (error) {
-      console.error("Error deleting comment(s):", error);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    } finally {
-      // Ensure the swipeable row closes regardless of success or failure
-      swipeableRefs.get(commentToDelete.id)?.close();
+  const handleProfilePress = (userId) => {
+    closeCommentsSheet();
+    if (userId === currentUserData?.uid) {
+      navigation.navigate('MainTabs', { screen: 'Profile' });
+    } else {
+      navigation.navigate('ProfileModal', { userId, presentation: 'modal' });
     }
   };
 
@@ -332,15 +392,11 @@ const CommentsBottomSheet = ({ isVisible, onClose, post }) => {
     };
 
     const renderRightActions = (progress) => {
-      const trans = progress.interpolate({
-        inputRange: [0, 1],
-        outputRange: [80, 0], // Width of the action view
-      });
       return (
         <View style={styles.deleteActionContainer}>
-          <Animated.View style={[styles.deleteButton, { transform: [{ translateX: trans }] }]}>
+          <View style={styles.deleteButton}>
             <MaterialIcons name="delete-outline" size={28} color="white" />
-          </Animated.View>
+          </View>
         </View>
       );
     };
@@ -357,6 +413,19 @@ const CommentsBottomSheet = ({ isVisible, onClose, post }) => {
           }
         }}
         rightThreshold={40}
+        friction={3}
+        rightSwipeThreshold={0.3}
+        leftSwipeThreshold={30}
+        onSwipeableRightDrag={({ nativeEvent }) => {
+          const THRESHOLD = 30;
+          if (nativeEvent.x < -THRESHOLD && !hapticTriggeredMap.get(`delete-${comment.id}`)) {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            hapticTriggeredMap.set(`delete-${comment.id}`, true);
+          } else if (nativeEvent.x >= -THRESHOLD && hapticTriggeredMap.get(`delete-${comment.id}`)) {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            hapticTriggeredMap.set(`delete-${comment.id}`, false);
+          }
+        }}
         onSwipeableLeftDrag={({ nativeEvent }) => {
           const THRESHOLD = 30;
           if (nativeEvent.x > THRESHOLD && !hapticTriggeredMap.get(comment.id)) {
@@ -374,22 +443,30 @@ const CommentsBottomSheet = ({ isVisible, onClose, post }) => {
         }}
         onSwipeableWillClose={() => {
           hapticTriggeredMap.set(comment.id, false);
+          hapticTriggeredMap.set(`delete-${comment.id}`, false);
         }}
-        friction={2}
-        leftThreshold={30}
       >
         <View style={[styles.commentItem, isReply && styles.replyCommentItem]}>
-          <Image source={{ uri: comment.userAvatar }} style={styles.commentAvatar} />
+          <Pressable onPress={() => handleProfilePress(comment.userId)}>
+            <Image source={{ uri: comment.userAvatar }} style={styles.commentAvatar} />
+          </Pressable>
           <View style={styles.commentContent}>
             <View style={styles.commentHeader}>
               <View style={styles.commentHeaderLeft}>
-                <Text style={styles.commentUsername}>{comment.userName}</Text>
+                <Pressable onPress={() => handleProfilePress(comment.userId)}>
+                  <Text style={styles.commentUsername}>{comment.userName}</Text>
+                </Pressable>
                 <Text style={styles.commentDate}>{comment.date.replace(' ago', '')}</Text>
               </View>
             </View>
             <Text style={styles.commentText}>
               {comment.replyToUserName && (
-                <Text style={styles.replyToText}>@{comment.replyToUserName} </Text>
+                <Text 
+                  style={styles.replyToText} 
+                  onPress={() => handleProfilePress(comment.replyToUserId)}
+                >
+                  @{comment.replyToUserName}{' '}
+                </Text>
               )}
               {comment.text}
             </Text>
@@ -444,7 +521,7 @@ const CommentsBottomSheet = ({ isVisible, onClose, post }) => {
                 renderItem={renderCommentItem}
                 keyExtractor={item => item.id}
                 ListEmptyComponent={<Text style={styles.noCommentsText}>No comments yet. Be the first!</Text>}
-                contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 20 }}
+                contentContainerStyle={{ paddingBottom: 20 }}
                 showsVerticalScrollIndicator={true}
                 scrollEnabled={true}
                 nestedScrollEnabled={true}
@@ -465,10 +542,12 @@ const CommentsBottomSheet = ({ isVisible, onClose, post }) => {
               </View>
             )}
             <View style={styles.mainInputRow}>
-              <Image 
-                source={{ uri: currentUserData?.photoURL || 'https://via.placeholder.com/40' }} 
-                style={styles.inputAvatar} 
-              />
+              <Pressable onPress={() => handleProfilePress(currentUserData?.uid)}>
+                <Image 
+                  source={{ uri: currentUserData?.photoURL || 'https://via.placeholder.com/40' }} 
+                  style={styles.inputAvatar} 
+                />
+              </Pressable>
               <TextInput
                 ref={textInputRef}
                 style={styles.input}
@@ -563,62 +642,82 @@ export default function UserPostsFeed({ navigation, route }) {
 
     // Fetch user data
     const userRef = doc(db, 'users', userId);
-    const unsubscribeUser = onSnapshot(userRef, (docSnap) => {
-      if (docSnap.exists()) {
-        setUser({ id: docSnap.id, ...docSnap.data() });
-      } else {
-        setUser(null);
+    const unsubscribeUser = onSnapshot(userRef, 
+      (docSnap) => {
+        if (docSnap.exists()) {
+          setUser({ id: docSnap.id, ...docSnap.data() });
+        } else {
+          setUser(null);
+          setLoading(false);
+        }
+      }, 
+      (error) => {
+        console.error("Error fetching user:", error);
         setLoading(false);
+        Alert.alert(
+          "Connection Error",
+          "There was an issue loading the user profile. Please try again.",
+          [{ text: "OK" }]
+        );
       }
-    }, (error) => {
-      console.error("Error fetching user:", error);
-      setLoading(false);
-    });
+    );
 
     // Fetch posts
     const postsRef = collection(db, 'posts');
     const q = query(postsRef, where("userId", "==", userId), orderBy('createdAt', 'desc'));
-    const unsubscribePosts = onSnapshot(q, async (querySnapshot) => {
-      try {
-        const postDocs = querySnapshot.docs;
-        
-        // Check which posts are liked by current user
-        let likedPostIds = new Set();
-        if (currentUserId) {
-            const likeCheckPromises = postDocs.map(postDoc => 
-              getDoc(doc(db, 'posts', postDoc.id, 'likes', currentUserId))
-            );
-            const likeDocs = await Promise.all(likeCheckPromises);
-            likeDocs.forEach((likeDoc, index) => {
-              if (likeDoc.exists()) {
-                likedPostIds.add(postDocs[index].id);
-              }
-            });
-            setLikedPosts(likedPostIds);
+    const unsubscribePosts = onSnapshot(q, 
+      async (querySnapshot) => {
+        try {
+          const postDocs = querySnapshot.docs;
+          
+          // Check which posts are liked by current user
+          let likedPostIds = new Set();
+          if (currentUserId) {
+              const likeCheckPromises = postDocs.map(postDoc => 
+                getDoc(doc(db, 'posts', postDoc.id, 'likes', currentUserId))
+              );
+              const likeDocs = await Promise.all(likeCheckPromises);
+              likeDocs.forEach((likeDoc, index) => {
+                if (likeDoc.exists()) {
+                  likedPostIds.add(postDocs[index].id);
+                }
+              });
+              setLikedPosts(likedPostIds);
+          }
+
+          const fetchedPosts = postDocs.map(postDoc => {
+            const postData = postDoc.data();
+            return {
+              id: postDoc.id,
+              ...postData,
+              user: { id: postData.userId, name: postData.userName, avatar: postData.userAvatar },
+              date: getTimeAgo(postData.createdAt).replace(' ago', ''),
+              likedByCurrentUser: likedPostIds.has(postDoc.id),
+            };
+          });
+
+          setPosts(fetchedPosts);
+        } catch (error) {
+          console.error("Error processing posts:", error);
+          Alert.alert(
+            "Error",
+            "There was an issue loading posts. Please try again.",
+            [{ text: "OK" }]
+          );
+        } finally {
+          setLoading(false);
         }
-
-        const fetchedPosts = postDocs.map(postDoc => {
-          const postData = postDoc.data();
-          return {
-            id: postDoc.id,
-            ...postData,
-            user: { id: postData.userId, name: postData.userName, avatar: postData.userAvatar },
-            date: getTimeAgo(postData.createdAt).replace(' ago', ''),
-            likedByCurrentUser: likedPostIds.has(postDoc.id),
-          };
-        });
-
-        // Set posts in normal chronological order
-        setPosts(fetchedPosts);
-      } catch (error) {
-        console.error("Error processing posts:", error);
-      } finally {
+      }, 
+      (error) => {
+        console.error("Error fetching posts:", error);
         setLoading(false);
+        Alert.alert(
+          "Connection Error",
+          "There was an issue loading posts. Please try again.",
+          [{ text: "OK" }]
+        );
       }
-    }, (error) => {
-      console.error("Error fetching posts:", error);
-      setLoading(false);
-    });
+    );
 
     return () => {
       unsubscribeUser();
@@ -763,6 +862,14 @@ export default function UserPostsFeed({ navigation, route }) {
     lastTap.current = now;
   };
 
+  const handleProfilePress = (userId) => {
+    if (userId === currentUserId) {
+      navigation.navigate('MainTabs', { screen: 'Profile' });
+    } else {
+      navigation.navigate('ProfileModal', { userId, presentation: 'modal' });
+    }
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
@@ -809,11 +916,15 @@ export default function UserPostsFeed({ navigation, route }) {
             >
               <Pressable
                 style={styles.postHeader}
-                onPress={() => navigation.navigate('ProfileModal', { userId: post.user.id })}
+                onPress={() => handleProfilePress(post.user.id)}
               >
-                <Image source={{ uri: post.user.avatar }} style={styles.avatar} />
+                <Pressable onPress={() => handleProfilePress(post.user.id)}>
+                  <Image source={{ uri: post.user.avatar }} style={styles.avatar} />
+                </Pressable>
                 <View style={styles.postHeaderTextRow}>
-                  <Text style={styles.postUsername}>{post.user.name}</Text>
+                  <Pressable onPress={() => handleProfilePress(post.user.id)}>
+                    <Text style={styles.postUsername}>{post.user.name}</Text>
+                  </Pressable>
                   <Text style={styles.postDate}>{post.date}</Text>
                 </View>
               </Pressable>
@@ -869,6 +980,8 @@ export default function UserPostsFeed({ navigation, route }) {
           isVisible={isCommentsSheetVisible}
           onClose={closeCommentsSheet}
           post={selectedPostForComments}
+          navigation={navigation}
+          closeCommentsSheet={closeCommentsSheet}
         />
       )}
     </SafeAreaView>
@@ -1033,8 +1146,9 @@ const styles = StyleSheet.create({
   },
   commentItem: {
     flexDirection: 'row',
-    paddingVertical: 12,
+    paddingVertical: 8,
     backgroundColor: '#FFFFFF', 
+    paddingHorizontal: 20,
   },
   commentAvatar: {
     width: 36,
@@ -1058,8 +1172,8 @@ const styles = StyleSheet.create({
   },
   commentUsername: {
     fontFamily: 'PatrickHand-Regular',
-    fontSize: 15,
-    color: '#8BA637',
+    fontSize: 18,
+    color: '#333',
     marginRight: 8,
     marginTop: -5,
   },
@@ -1073,7 +1187,7 @@ const styles = StyleSheet.create({
     fontFamily: 'PatrickHand-Regular',
     fontSize: 15,
     color: '#333',
-    lineHeight: 18,
+    lineHeight: 20,
     marginTop: 1,
   },
   noCommentsText: {
@@ -1130,6 +1244,7 @@ const styles = StyleSheet.create({
     width: 30,
     height: '100%',
     borderRadius: 0,
+    marginLeft: 20,
   },
   replyButton: {
     padding: 5,
@@ -1137,7 +1252,7 @@ const styles = StyleSheet.create({
   replyToText: {
     fontFamily: 'PatrickHand-Regular',
     fontSize: 15,
-    color: '#8BA637',
+    color: '#8BA629',
     fontWeight: 'bold',
   },
   replyingToContainer: {
@@ -1145,8 +1260,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 15,
-    paddingBottom: 8,
-    paddingTop: 8,
+    paddingVertical: 15,
     backgroundColor: '#f7f7f7',
   },
   replyingToText: {
@@ -1155,20 +1269,20 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   replyCommentItem: {
-    marginLeft: 48, // Indent replies
-    paddingLeft: 12,
-    // MODIFIED: Removed border to avoid visual artifacts with swipeable
+    paddingLeft: 68,
   },
   deleteActionContainer: {
     backgroundColor: '#FF3B30',
     justifyContent: 'center',
-    width: 80,
+    flex: 1,
+    width: '100%',
   },
   deleteButton: {
-    width: 80,
-    justifyContent: 'center',
-    alignItems: 'center',
+    width: '100%',
     height: '100%',
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+    paddingRight: 30,
   },
   // --- END OF CommentsBottomSheet STYLES ---
 });
