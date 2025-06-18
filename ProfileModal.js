@@ -6,6 +6,7 @@ import { doc, onSnapshot, collection, query, where, orderBy } from 'firebase/fir
 import { httpsCallable } from 'firebase/functions';
 import { Alert, ActivityIndicator } from 'react-native';
 import { functions } from './firebaseConfig';
+import defaultProfilePhoto from './assets/default-profile-photo.png';
 
 const screenWidth = Dimensions.get('window').width;
 const gridMargin = 1;
@@ -20,9 +21,11 @@ export default function ProfileModal({ navigation, route }) {
   const [user, setUser] = useState(null);
   const [userPosts, setUserPosts] = useState([]);
   const [isFollowing, setIsFollowing] = useState(false);
-  const [hasRequested, setHasRequested] = useState(false); // New state for follow requests
-  const [isFollowedBy, setIsFollowedBy] = useState(false); // New state for if profile user follows current user
+  const [hasRequested, setHasRequested] = useState(false);
+  const [isFollowedBy, setIsFollowedBy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [followerCount, setFollowerCount] = useState(0);
+  const [followingCount, setFollowingCount] = useState(0);
 
   // Cloud Functions
   const requestToFollowUser = httpsCallable(functions, 'requestToFollowUser');
@@ -31,8 +34,14 @@ export default function ProfileModal({ navigation, route }) {
 
   useEffect(() => {
     if (!userId) return;
+    
+    let unsubscribeUser = () => {};
+    let unsubscribeFollowing = () => {};
+    let unsubscribeRequest = () => {};
+    let unsubscribeFollowedBy = () => {};
+
     const userRef = doc(db, 'users', userId);
-    const unsubscribeUser = onSnapshot(userRef, (docSnap) => {
+    unsubscribeUser = onSnapshot(userRef, (docSnap) => {
       if (docSnap.exists()) {
         setUser({ id: docSnap.id, ...docSnap.data() });
       } else {
@@ -41,27 +50,16 @@ export default function ProfileModal({ navigation, route }) {
       setLoading(false);
     });
 
-    let unsubscribeFollowing = () => {};
-    let unsubscribeRequest = () => {};
-    let unsubscribeFollowedBy = () => {};
     if (!isCurrentUser && currentUserId) {
-      // Check if current user is following this profile
       const followingDocRef = doc(db, 'following', currentUserId, 'userFollowing', userId);
-      unsubscribeFollowing = onSnapshot(followingDocRef, (docSnap) => {
-        setIsFollowing(docSnap.exists());
-      });
+      unsubscribeFollowing = onSnapshot(followingDocRef, (docSnap) => setIsFollowing(docSnap.exists()));
 
-      // Check if current user has a pending request to this profile
       const requestDocRef = doc(db, 'users', userId, 'followRequests', currentUserId);
-      unsubscribeRequest = onSnapshot(requestDocRef, (docSnap) => {
-        setHasRequested(docSnap.exists());
-      });
+      unsubscribeRequest = onSnapshot(requestDocRef, (docSnap) => setHasRequested(docSnap.exists()));
 
-      // Check if profile user is following the current user (for 'Follow Back')
-      const followedByDocRef = doc(db, 'followers', currentUserId, 'userFollowers', userId);
-      unsubscribeFollowedBy = onSnapshot(followedByDocRef, (docSnap) => {
-        setIsFollowedBy(docSnap.exists());
-      });
+      // Note: This path `users/${currentUserId}/followers` assumes you store a user's followers in their own document.
+      const followedByDocRef = doc(db, 'users', currentUserId, 'followers', userId);
+      unsubscribeFollowedBy = onSnapshot(followedByDocRef, (docSnap) => setIsFollowedBy(docSnap.exists()));
     }
 
     return () => {
@@ -82,26 +80,43 @@ export default function ProfileModal({ navigation, route }) {
     return () => unsubscribe();
   }, [userId]);
 
+  useEffect(() => {
+    if (!userId) return;
+    // Listen for follower and following counts
+    const followersRef = collection(db, 'followers', userId, 'userFollowers');
+    const unsubscribeFollowersCount = onSnapshot(followersRef, (snapshot) => {
+      setFollowerCount(snapshot.size);
+    });
+    const followingRef = collection(db, 'following', userId, 'userFollowing');
+    const unsubscribeFollowingCount = onSnapshot(followingRef, (snapshot) => {
+      setFollowingCount(snapshot.size);
+    });
+    return () => {
+      unsubscribeFollowersCount();
+      unsubscribeFollowingCount();
+    };
+  }, [userId]);
+
   const handleRequestFollow = useCallback(async () => {
     if (isCurrentUser || isFollowing || hasRequested) return;
-    setHasRequested(true); // Optimistic update
+    setHasRequested(true);
     try {
       await requestToFollowUser({ userIdToFollow: userId });
     } catch (e) {
       console.error('Failed to send follow request:', e);
-      setHasRequested(false); // Revert on error
+      setHasRequested(false);
       Alert.alert("Error", "Could not send follow request. Please try again.");
     }
   }, [isCurrentUser, userId, isFollowing, hasRequested]);
 
   const handleWithdrawRequest = useCallback(async () => {
     if (isCurrentUser || !hasRequested) return;
-    setHasRequested(false); // Optimistic update
+    setHasRequested(false);
     try {
       await withdrawFollowRequest({ userIdToWithdrawFrom: userId });
     } catch (e) {
       console.error('Failed to withdraw request:', e);
-      setHasRequested(true); // Revert on error
+      setHasRequested(true);
       Alert.alert("Error", "Could not withdraw request. Please try again.");
     }
   }, [isCurrentUser, userId, hasRequested]);
@@ -112,20 +127,17 @@ export default function ProfileModal({ navigation, route }) {
       `Unfollow @${user?.username || 'user'}?`,
       "You will need to request to follow them again to see their posts.",
       [
-        {
-          text: "Cancel",
-          style: "cancel"
-        },
+        { text: "Cancel", style: "cancel" },
         { 
           text: "Unfollow", 
           style: "destructive", 
           onPress: async () => {
-            setIsFollowing(false); // Optimistic update
+            setIsFollowing(false);
             try {
               await unfollowUser({ userIdToUnfollow: userId });
             } catch (e) {
               console.error('Failed to unfollow user:', e);
-              setIsFollowing(true); // Revert on error
+              setIsFollowing(true);
               Alert.alert("Error", "Could not unfollow user. Please try again.");
             }
           }
@@ -158,31 +170,22 @@ export default function ProfileModal({ navigation, route }) {
 
   const renderFollowButton = () => {
     if (isFollowing) {
-      return (
-        <Pressable style={styles.followingButton} onPress={handleUnfollow}>
-          <Text style={styles.followingButtonText}>Following</Text>
-        </Pressable>
-      );
+      return <Pressable style={styles.followingButton} onPress={handleUnfollow}><Text style={styles.followingButtonText}>Following</Text></Pressable>;
     }
     if (hasRequested) {
-      return (
-        <Pressable style={styles.requestedButton} onPress={handleWithdrawRequest}>
-          <Text style={styles.requestedButtonText}>Requested</Text>
-        </Pressable>
-      );
+      return <Pressable style={styles.requestedButton} onPress={handleWithdrawRequest}><Text style={styles.requestedButtonText}>Requested</Text></Pressable>;
     }
     if (isFollowedBy) {
-      return (
-        <Pressable style={styles.addFriendButton} onPress={handleRequestFollow}>
-          <Text style={styles.addFriendText}>Follow Back</Text>
-        </Pressable>
-      );
+      return <Pressable style={styles.addFriendButton} onPress={handleRequestFollow}><Text style={styles.addFriendText}>Follow Back</Text></Pressable>;
     }
-    return (
-      <Pressable style={styles.addFriendButton} onPress={handleRequestFollow}>
-        <Text style={styles.addFriendText}>Follow</Text>
-      </Pressable>
-    );
+    return <Pressable style={styles.addFriendButton} onPress={handleRequestFollow}><Text style={styles.addFriendText}>Follow</Text></Pressable>;
+  };
+
+  const formatCount = (count) => {
+    if (count < 1000) return count.toString();
+    if (count < 10000) return (count / 1000).toFixed(1).replace(/\.0$/, '') + 'k'; // 1k - 9.9k
+    if (count < 1000000) return Math.floor(count / 1000) + 'k'; // 10k - 999k
+    return (count / 1000000).toFixed(1).replace(/\.0$/, '') + 'M'; // 1M+
   };
 
   return (
@@ -196,20 +199,35 @@ export default function ProfileModal({ navigation, route }) {
           contentContainerStyle={{ paddingBottom: 100 }}
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.profileHeader}>
+          <View style={styles.profileHeaderContainer}>
             <Image 
-              source={user.photoURL ? { uri: user.photoURL } : require('./assets/default-profile-photo.png')} 
+              source={user.photoURL ? { uri: user.photoURL } : defaultProfilePhoto} 
               style={styles.profileImage} 
             />
-            <View style={styles.row}>
-              <Text style={styles.name}>{user.displayName}</Text>
-              {user.verified && (
-                <MaterialIcons name="verified" size={20} color="#8BA637" style={{ marginLeft: 4 }} />
-              )}
+            <View style={styles.profileInfoContainer}>
+              <View>
+                <View style={styles.nameRow}>
+                  <Text style={styles.name}>{user?.displayName || 'User'}</Text>
+                  {user?.verified && (
+                    <MaterialIcons name="verified" size={20} color="#8BA637" style={{ marginLeft: 4 }} />
+                  )}
+                </View>
+                <Text style={styles.handle}>{user.username ? `@${user.username}` : `@${(user.displayName || '').toLowerCase().replace(/\s/g, '')}`}</Text>
+              </View>
+              <View style={styles.statsContainer}>
+                <View style={styles.statItem}>
+                  <Text style={styles.statNumber}>{formatCount(followingCount)}</Text>
+                  <Text style={styles.statLabel}>Following</Text>
+                </View>
+                <View style={styles.statItem}>
+                  <Text style={styles.statNumber}>{formatCount(followerCount)}</Text>
+                  <Text style={styles.statLabel}>Followers</Text>
+                </View>
+              </View>
             </View>
-            <Text style={styles.handle}>{user.username ? `@${user.username}` : `@${(user.displayName || '').toLowerCase().replace(/\s/g, '')}`}</Text>
-            <Text style={styles.bio}>{user.bio}</Text>
           </View>
+
+          <Text style={styles.bio}>{user.bio}</Text>
 
           <View style={styles.buttonWrapper}>
             {isCurrentUser ? (
@@ -253,36 +271,44 @@ export default function ProfileModal({ navigation, route }) {
 }
 
 const styles = StyleSheet.create({
-  navBar: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: 83,
+  backButton: {
     flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
-    justifyContent: 'space-around',
     alignItems: 'center',
-    zIndex: 99,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 10,
+    zIndex: 1,
   },
-  profileHeader: {
-    paddingTop: 40,
+  backButtonText: {
+    fontSize: 18,
+    fontFamily: 'PatrickHand-Regular',
+    color: '#b9b9b9',
+  },
+  profileHeaderContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 35,
+    marginBottom: 12,
+    marginTop: 20,
+  },
+  profileInfoContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginLeft: 15,
   },
   profileImage: {
     width: 80,
     height: 80,
     borderRadius: 40,
     borderWidth: 0.5,
-    borderColor: '#b9b9b9',  
-    marginLeft: 35,
-    marginBottom: 12,
+    borderColor: '#b9b9b9',
     backgroundColor: '#FFFFFF',
   },
-  row: {
+  nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginLeft: 128,
-    marginTop: -80,
   },
   name: {
     fontSize: 20,
@@ -293,11 +319,27 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: 'PatrickHand-Regular',
     color: '#b9b9b9',
-    marginLeft: 128,
-    marginTop: 0,
+  },
+  statsContainer: {
+    flexDirection: 'row',
+  },
+  statItem: {
+    alignItems: 'center',
+    marginLeft: 15,
+  },
+  statNumber: {
+    fontSize: 20,
+    color: '#53544D',
+    fontFamily: 'PatrickHand-Regular',
+  },
+  statLabel: {
+    fontSize: 16,
+    color: '#b9b9b9',
+    fontFamily: 'PatrickHand-Regular',
+    marginTop: -4,
   },
   bio: {
-    marginTop: 28,
+    marginTop: 16,
     marginLeft: 35,
     marginRight: 35,
     color: '#53544D',
@@ -397,16 +439,5 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-  },
-  backButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 20,
-    zIndex: 1,
-  },
-  backButtonText: {
-    fontSize: 18,
-    fontFamily: 'PatrickHand-Regular',
-    color: '#b9b9b9',
   },
 });

@@ -20,8 +20,10 @@ export default function ProfileScreen({ navigation, route }) {
   const [user, setUser] = useState(null);
   const [userPosts, setUserPosts] = useState([]);
   const [isFollowing, setIsFollowing] = useState(false);
-  const [hasRequested, setHasRequested] = useState(false); // New state for follow requests
+  const [hasRequested, setHasRequested] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [followerCount, setFollowerCount] = useState(0);
+  const [followingCount, setFollowingCount] = useState(0);
 
   // Cloud Functions
   const requestToFollowUser = httpsCallable(functions, 'requestToFollowUser');
@@ -33,8 +35,15 @@ export default function ProfileScreen({ navigation, route }) {
       setLoading(false);
       return;
     }
+
+    let unsubscribeUser = () => {};
+    let unsubscribeFollowing = () => {};
+    let unsubscribeRequest = () => {};
+    let unsubscribeFollowers = () => {};
+    let unsubscribeFollowingCount = () => {};
+
     const userRef = doc(db, 'users', userId);
-    const unsubscribeUser = onSnapshot(userRef, (docSnap) => {
+    unsubscribeUser = onSnapshot(userRef, (docSnap) => {
       if (docSnap.exists()) {
         setUser({ id: docSnap.id, ...docSnap.data() });
       } else {
@@ -43,8 +52,6 @@ export default function ProfileScreen({ navigation, route }) {
       setLoading(false);
     });
 
-    let unsubscribeFollowing = () => {};
-    let unsubscribeRequest = () => {};
     if (!isCurrentUser && currentUserId) {
       // Check if current user is following this profile
       const followingDocRef = doc(db, 'following', currentUserId, 'userFollowing', userId);
@@ -58,11 +65,24 @@ export default function ProfileScreen({ navigation, route }) {
         setHasRequested(docSnap.exists());
       });
     }
+
+    // Listen for follower and following counts
+    const followersRef = collection(db, 'followers', userId, 'userFollowers');
+    unsubscribeFollowers = onSnapshot(followersRef, (snapshot) => {
+      setFollowerCount(snapshot.size);
+    });
+
+    const followingRef = collection(db, 'following', userId, 'userFollowing');
+    unsubscribeFollowingCount = onSnapshot(followingRef, (snapshot) => {
+      setFollowingCount(snapshot.size);
+    });
     
     return () => {
       unsubscribeUser();
       unsubscribeFollowing();
       unsubscribeRequest();
+      unsubscribeFollowers();
+      unsubscribeFollowingCount();
     };
   }, [userId, currentUserId, isCurrentUser]);
 
@@ -128,6 +148,13 @@ export default function ProfileScreen({ navigation, route }) {
     );
   }, [isCurrentUser, userId, isFollowing, user?.username]);
 
+  const formatCount = (count) => {
+    if (count < 1000) return count.toString();
+    if (count < 10000) return (count / 1000).toFixed(1).replace(/\.0$/, '') + 'k'; // 1k - 9.9k
+    if (count < 1000000) return Math.floor(count / 1000) + 'k'; // 10k - 999k
+    return (count / 1000000).toFixed(1).replace(/\.0$/, '') + 'M'; // 1M+
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFFFFF' }}>
@@ -175,21 +202,36 @@ export default function ProfileScreen({ navigation, route }) {
           contentContainerStyle={{ paddingBottom: 100 }}
           showsVerticalScrollIndicator={false}
         >
-          <Pressable>
+          <View style={styles.profileHeaderContainer}>
             <Image
               source={user?.photoURL ? { uri: user.photoURL } : defaultProfilePhoto}
               style={styles.profileImage}
             />
-            <View style={styles.row}>
-              <Text style={styles.name}>{user?.displayName || 'User'}</Text>
-              {user?.verified && (
-                <MaterialIcons name="verified" size={20} color="#8BA637" style={{ marginLeft: 4 }} />
-              )}
+            <View style={styles.profileInfoContainer}>
+              <View>
+                <View style={styles.nameRow}>
+                  <Text style={styles.name}>{user?.displayName || 'User'}</Text>
+                  {user?.verified && (
+                    <MaterialIcons name="verified" size={20} color="#8BA637" style={{ marginLeft: 4 }} />
+                  )}
+                </View>
+                <Text style={styles.handle}>
+                  {user?.username ? `@${user.username}` : `@${(user?.displayName || 'user').toLowerCase().replace(/\s/g, '')}`}
+                </Text>
+              </View>
+
+              <View style={styles.statsContainer}>
+                <View style={styles.statItem}>
+                  <Text style={styles.statNumber}>{formatCount(followingCount)}</Text>
+                  <Text style={styles.statLabel}>Following</Text>
+                </View>
+                <View style={styles.statItem}>
+                  <Text style={styles.statNumber}>{formatCount(followerCount)}</Text>
+                  <Text style={styles.statLabel}>Followers</Text>
+                </View>
+              </View>
             </View>
-            <Text style={styles.handle}>
-              {user?.username ? `@${user.username}` : `@${(user?.displayName || 'user').toLowerCase().replace(/\s/g, '')}`}
-            </Text>
-          </Pressable>
+          </View>
 
           <Text style={styles.bio}>
             {user.bio}
@@ -205,7 +247,7 @@ export default function ProfileScreen({ navigation, route }) {
                   style={styles.addFriendsProfileButton} 
                   onPress={() => navigation.navigate('AddMoreFriends')}
                 >
-                  <Text style={styles.addFriendsProfileButtonText}>Find friends</Text>
+                  <Text style={styles.addFriendsProfileButtonText}>Add friends</Text>
                 </Pressable>
               </>
             ) : (
@@ -254,22 +296,31 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     flexGrow: 1,
   },
+  profileHeaderContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 69,
+    paddingHorizontal: 35,
+    marginBottom: 12,
+  },
+  profileInfoContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginLeft: 15,
+  },
   profileImage: {
     width: 80,
     height: 80,
     borderRadius: 40,
     borderWidth: 0.5,
     borderColor: '#b9b9b9',
-    marginTop: 69,
-    marginLeft: 35,
-    marginBottom: 12,
     backgroundColor: '#FFFFFF',
   },
-  row: {
+  nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginLeft: 128,
-    marginTop: -80,
   },
   name: {
     fontSize: 20,
@@ -280,11 +331,27 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: 'PatrickHand-Regular',
     color: '#b9b9b9',
-    marginLeft: 128,
-    marginTop: 0,
+  },
+  statsContainer: {
+    flexDirection: 'row',
+  },
+  statItem: {
+    alignItems: 'center',
+    marginLeft: 15,
+  },
+  statNumber: {
+    fontSize: 20,
+    color: '#53544D',
+    fontFamily: 'PatrickHand-Regular',
+  },
+  statLabel: {
+    fontSize: 16,
+    color: '#b9b9b9',
+    fontFamily: 'PatrickHand-Regular',
+    marginTop: -4,
   },
   bio: {
-    marginTop: 28,
+    marginTop: 16, // Adjusted from 28 to account for header layout change
     marginLeft: 35,
     marginRight: 35,
     color: '#53544D',
