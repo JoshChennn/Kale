@@ -15,6 +15,7 @@ import {
   Animated,
   Platform,
   ActionSheetIOS,
+  TouchableOpacity,
 } from 'react-native';
 import { db, auth, functions } from './firebaseConfig';
 import { httpsCallable } from 'firebase/functions';
@@ -60,10 +61,14 @@ export default function FeedScreen({ navigation }) {
   const [stories, setStories] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [postsCleared, setPostsCleared] = useState(false);
+  // --- MODIFICATION: Track cleared state for each feed type ---
+  const [clearedFeeds, setClearedFeeds] = useState({
+    'Close Friends': false,
+    'Everyone': false,
+  });
   const [footerPosition, setFooterPosition] = useState(-250);
   const [showDropdown, setShowDropdown] = useState(false);
-  const [selectedFilter, setSelectedFilter] = useState('Best Friends');
+  const [selectedFilter, setSelectedFilter] = useState('Close Friends');
   const currentUser = auth.currentUser;
 
   // Refs for animations
@@ -81,6 +86,15 @@ export default function FeedScreen({ navigation }) {
   // Add state for comments bottom sheet
   const [isCommentsSheetVisible, setCommentsSheetVisible] = useState(false);
   const [selectedPostForComments, setSelectedPostForComments] = useState(null);
+
+  // Add state to control scroll-to-top button visibility
+  const [showScrollTop, setShowScrollTop] = useState(false);
+
+  // Add animated value for scroll-to-top button
+  const scrollTopAnim = useRef(new Animated.Value(0)).current; // 0: hidden, 1: visible
+
+  // Track if user is near the footer
+  const [nearFooter, setNearFooter] = useState(false);
 
   // Initialize heart animations for posts
   useEffect(() => {
@@ -124,6 +138,13 @@ export default function FeedScreen({ navigation }) {
   useEffect(() => {
     if (!currentUser) return;
     
+    // --- MODIFICATION: Check if the current feed has been cleared by the user ---
+    if (clearedFeeds[selectedFilter]) {
+      setPosts([]);
+      setLoading(false);
+      return () => {}; // Return empty cleanup function
+    }
+
     setLoading(true);
     let unsubscribePosts = () => {}; // Holder for the nested listener
 
@@ -132,17 +153,29 @@ export default function FeedScreen({ navigation }) {
       // Important: Unsubscribe from the previous posts listener before creating a new one
       unsubscribePosts();
 
-      const followingIds = followingSnap.docs.map(doc => doc.id);
+      // --- FILTER LOGIC FOR CLOSE FRIENDS ---
+      // Map following docs to { id, isCloseFriend }
+      const following = followingSnap.docs.map(doc => ({
+        id: doc.id,
+        isCloseFriend: !!doc.data().isCloseFriend,
+      }));
+      // Filter based on selectedFilter
+      let filteredFollowingIds;
+      if (selectedFilter === 'Close Friends') {
+        filteredFollowingIds = following.filter(f => f.isCloseFriend).map(f => f.id);
+      } else {
+        filteredFollowingIds = following.map(f => f.id);
+      }
 
-      // --- POSTS LOGIC: Fetch posts from people the user is following AND the current user
-      if (followingIds.length > 0) {
-        const limitedFollowingIds = followingIds.slice(0, 30);
-        // Include current user's posts in the feed
-        const allUserIds = [...limitedFollowingIds, currentUser.uid];
+      // --- POSTS LOGIC: Fetch posts from filtered users (do NOT include current user)
+      if (filteredFollowingIds.length > 0) {
+        const limitedFollowingIds = filteredFollowingIds.slice(0, 30);
+        // Do NOT include current user's posts in the feed
+        const allUserIds = [...limitedFollowingIds];
 
         const postsQuery = query(
           collection(db, 'posts'),
-          where('userId', 'in', allUserIds), // Query for followed users AND current user
+          where('userId', 'in', allUserIds), // Query for filtered users only
           orderBy('createdAt', 'desc'),
           limit(25)
         );
@@ -184,7 +217,7 @@ export default function FeedScreen({ navigation }) {
           });
 
           if (fetchedPosts.length > 0) {
-            setPostsCleared(false);
+            // Reset animations if we get new posts
             clearAnimation.setValue(0);
             clearedOpacity.setValue(0);
           }
@@ -193,63 +226,13 @@ export default function FeedScreen({ navigation }) {
           setLoading(false); // Stop loading once posts are processed
         });
       } else {
-        // If user follows no one, still fetch their own posts
-        const postsQuery = query(
-          collection(db, 'posts'),
-          where('userId', '==', currentUser.uid),
-          orderBy('createdAt', 'desc'),
-          limit(25)
-        );
-        
-        unsubscribePosts = onSnapshot(postsQuery, async (querySnapshot) => {
-          const postDocs = querySnapshot.docs;
-          if (postDocs.length === 0) {
-            setPosts([]);
-            setLoading(false);
-            return;
-          }
-
-          const postIds = postDocs.map(d => d.id);
-          const likeCheckPromises = postIds.map(id =>
-            getDoc(doc(db, 'posts', id, 'likes', currentUser.uid))
-          );
-          const likeDocs = await Promise.all(likeCheckPromises);
-          const likeStatusMap = new Map();
-          likeDocs.forEach((likeDoc, index) => {
-            likeStatusMap.set(postIds[index], likeDoc.exists());
-          });
-
-          const fetchedPosts = postDocs.map(doc => {
-            const postData = doc.data();
-            return {
-              id: doc.id,
-              ...postData,
-              user: { 
-                id: postData.userId, 
-                name: postData.userName, 
-                username: postData.userUsername,
-                avatar: postData.userAvatar 
-              },
-              date: getTimeAgo(postData.createdAt),
-              likedByCurrentUser: likeStatusMap.get(doc.id) || false,
-              likesCount: postData.likesCount || 0,
-            };
-          });
-
-          if (fetchedPosts.length > 0) {
-            setPostsCleared(false);
-            clearAnimation.setValue(0);
-            clearedOpacity.setValue(0);
-          }
-          
-          setPosts(fetchedPosts);
-          setLoading(false);
-        });
+        // If user follows no one (or no close friends), show an empty feed
+        setPosts([]);
+        setLoading(false);
       }
 
-      // --- STORIES LOGIC: Fetch stories from followed users AND the current user
-      const storyUserIds = [...new Set([currentUser.uid, ...followingIds])];
-      
+      // --- STORIES LOGIC: Fetch stories from filtered users AND the current user
+      const storyUserIds = [...new Set([currentUser.uid, ...filteredFollowingIds])];
       const fetchStories = async () => {
         if (storyUserIds.length === 0) {
             setStories([]);
@@ -294,11 +277,12 @@ export default function FeedScreen({ navigation }) {
       unsubscribeFollowing();
       unsubscribePosts();
     };
-  }, [currentUser]);
+  }, [currentUser, selectedFilter, clearedFeeds]); // --- MODIFICATION: Add clearedFeeds dependency
   
   // --- ANIMATION EFFECT ---
   useEffect(() => {
-    if (postsCleared) {
+    // --- MODIFICATION: Animate based on the cleared status of the current feed ---
+    if (clearedFeeds[selectedFilter]) {
       Animated.timing(clearedOpacity, {
         toValue: 1,
         duration: 600,
@@ -308,7 +292,7 @@ export default function FeedScreen({ navigation }) {
     } else {
       clearedOpacity.setValue(0);
     }
-  }, [postsCleared]);
+  }, [clearedFeeds, selectedFilter]);
 
   // --- HANDLERS ---
   const onAcceptRequest = async (requesterId) => {
@@ -491,7 +475,11 @@ export default function FeedScreen({ navigation }) {
           // 4. After the animation completes, update the state.
           if (finished) {
             setPosts([]);
-            setPostsCleared(true);
+            // --- MODIFICATION: Set cleared state for the CURRENT filter only ---
+            setClearedFeeds(prev => ({
+              ...prev,
+              [selectedFilter]: true,
+            }));
             scaleAnim.setValue(1); // Reset button scale
             outlineOpacityAnim.setValue(0); // Reset outline opacity
           }
@@ -568,8 +556,8 @@ export default function FeedScreen({ navigation }) {
     // Calculate how far from the bottom we are
     const distanceFromBottom = contentHeight - (scrollPosition + screenHeight);
     
-    // If posts are cleared, set height to -150
-    if (postsCleared) {
+    // If posts are cleared for the current filter, set height to -150
+    if (clearedFeeds[selectedFilter]) {
       setFooterPosition(-150);
     } else if (distanceFromBottom > 320) {
       // If the footer is below the screen, set height to 0
@@ -577,6 +565,21 @@ export default function FeedScreen({ navigation }) {
     } else {
       // Otherwise, calculate inverse height
       setFooterPosition(Math.max(-250, -distanceFromBottom));
+    }
+    // Show scroll-to-top button if scrolled down more than 200px and not near footer
+    setShowScrollTop(scrollPosition > 200 && distanceFromBottom > 400);
+    setNearFooter(distanceFromBottom <= 400);
+  };
+
+  // Add handler for scroll-to-top button
+  const handleScrollToTop = () => {
+    if (listRef.current) {
+      listRef.current.scrollToLocation({
+        animated: true,
+        sectionIndex: 0,
+        itemIndex: 0,
+        viewOffset: 0,
+      });
     }
   };
 
@@ -634,6 +637,15 @@ export default function FeedScreen({ navigation }) {
       Alert.alert('Error', 'Could not clear notifications. Please try again.');
     }
   };
+
+  // Animate scroll-to-top button in/out
+  useEffect(() => {
+    Animated.timing(scrollTopAnim, {
+      toValue: showScrollTop ? 1 : 0,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
+  }, [showScrollTop]);
 
   if (loading) {
     return (
@@ -1083,16 +1095,50 @@ export default function FeedScreen({ navigation }) {
   };
 
   const renderSectionHeader = ({ section: { title, type } }) => {
-    if (type === 'stories' || (type === 'posts' && posts.length === 0)) return null;
+    // --- MODIFICATION: Always render the Post section header for the filter toggle ---
+    if (type === 'stories') return null;
     
     if (type === 'posts') {
+      const isFeedEmptyAndNotCleared = posts.length === 0 && !clearedFeeds[selectedFilter];
+      const isCleared = clearedFeeds[selectedFilter];
+
+      // MODIFICATION: If cleared, center the filter toggle and hide the title
+      if (isCleared) {
+        return (
+          <View style={[styles.sectionHeaderContainer, { justifyContent: 'center' }]}> 
+            <View style={styles.filterContainer}>
+              <Pressable 
+                style={styles.filterButton}
+                onPress={() => {
+                  clearAnimation.setValue(0);
+                  setSelectedFilter(selectedFilter === 'Close Friends' ? 'Everyone' : 'Close Friends');
+                }}
+              >
+                <Text style={styles.filterText}>{selectedFilter}</Text>
+                <MaterialIcons 
+                  name="swap-horiz" 
+                  size={24} 
+                  color="#8BA637" 
+                />
+              </Pressable>
+            </View>
+          </View>
+        );
+      }
+
+      // Don't show the header title if the feed is naturally empty, but keep the container for the filter button.
       return (
         <View style={styles.sectionHeaderContainer}>
-          <Text style={styles.sectionHeader}>{title}</Text>
+          <Text style={styles.sectionHeader}>
+            {isFeedEmptyAndNotCleared ? '' : title}
+          </Text>
           <View style={styles.filterContainer}>
             <Pressable 
               style={styles.filterButton}
-              onPress={() => setSelectedFilter(selectedFilter === 'Best Friends' ? 'Everyone' : 'Best Friends')}
+              onPress={() => {
+                clearAnimation.setValue(0);
+                setSelectedFilter(selectedFilter === 'Close Friends' ? 'Everyone' : 'Close Friends');
+              }}
             >
               <Text style={styles.filterText}>{selectedFilter}</Text>
               <MaterialIcons 
@@ -1147,13 +1193,13 @@ export default function FeedScreen({ navigation }) {
   if (stories.length > 0) {
     sections.push({ title: 'Stories', data: [{ id: 'story-bar', storyData: stories }], type: 'stories' });
   }
-  if (posts.length > 0) {
-    sections.push({ title: 'New Posts', data: posts, type: 'posts' });
-  }
+  // --- MODIFICATION: Always include the posts section to ensure the header with the filter is always visible ---
+  sections.push({ title: 'New Posts', data: posts, type: 'posts' });
 
   const ListFooterComponent = () => {
     if (posts.length === 0) {
-      if (postsCleared) {
+      // --- MODIFICATION: Check the cleared state for the specific filter ---
+      if (clearedFeeds[selectedFilter]) {
         const getTimeBasedMessage = () => {
           const hour = new Date().getHours();
           if (hour >= 5 && hour < 9) return "Go drink some water. 💧";
@@ -1163,11 +1209,12 @@ export default function FeedScreen({ navigation }) {
           return "Get some sleep. 😴";
         };
 
+        // MODIFICATION: Show the cleared message immediately, not just after animation
         return (
-          <Animated.View style={[styles.clearedContainer, { opacity: clearedOpacity }]}>
+          <View style={[styles.clearedContainer, { opacity: 1 }]}> 
             <Text style={styles.clearedText}>That's it for today.</Text>
             <Text style={styles.clearedSubText}>{getTimeBasedMessage()}</Text>
-          </Animated.View>
+          </View>
         );
       }
       return null;
@@ -1243,6 +1290,32 @@ export default function FeedScreen({ navigation }) {
         onScroll={handleScroll}
         scrollEventThrottle={16}
       />
+      {/* Animated Floating Scroll-to-Top Button */}
+      <Animated.View
+        pointerEvents={showScrollTop && !isCommentsSheetVisible ? 'auto' : 'none'}
+        style={[
+          styles.scrollTopButtonContainer,
+          {
+            opacity: scrollTopAnim,
+            transform: [
+              {
+                translateX: scrollTopAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [100, 0],
+                }),
+              },
+            ],
+          },
+        ]}
+      >
+        <TouchableOpacity
+          onPress={handleScrollToTop}
+          activeOpacity={0.8}
+          style={styles.scrollTopButton}
+        >
+          <Ionicons name="arrow-up" size={38} style={styles.scrollTopButtonIcon} />
+        </TouchableOpacity>
+      </Animated.View>
       {selectedPostForComments && (
         <CommentsBottomSheet
           isVisible={isCommentsSheetVisible}
@@ -1285,6 +1358,7 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontFamily: 'PatrickHand-Regular',
     color: '#8BA637',
+    flex: 1, // Allow header text to shrink if needed
   },
   filterContainer: {
     position: 'relative',
@@ -1555,6 +1629,7 @@ const styles = StyleSheet.create({
   clearedContainer: {
     paddingVertical: 80,
     alignItems: 'center',
+    minHeight: 300, // Ensure it has some height
   },
   clearedText: {
     fontFamily: 'PatrickHand-Regular',
@@ -1608,5 +1683,26 @@ const styles = StyleSheet.create({
   },
   textPostPressable: {
     flex: 1,
+  },
+  scrollTopButtonContainer: {
+    position: 'absolute',
+    bottom: 40,
+    right: 30,
+    zIndex: 100,
+    
+  },
+  scrollTopButton: {
+    backgroundColor: '#8BA637',
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    
+  },
+  scrollTopButtonIcon: {
+    alignSelf: 'center',
+    marginTop: 0,
+    color: '#fff',
   },
 });

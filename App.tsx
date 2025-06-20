@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { View, ActivityIndicator, Alert } from 'react-native';
+import { View, ActivityIndicator, Alert, Image } from 'react-native';
 import { useFonts } from 'expo-font';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -97,18 +97,47 @@ function MainTabs({ currentUser }: { currentUser: FirebaseUser }) {
         tabBarShowLabel: false,
         tabBarIcon: ({ focused }) => {
           let iconName: keyof typeof MaterialIcons.glyphMap = 'home';
+          let iconSize = 30;
+          let iconStyle = {};
           if (route.name === 'FeedStack')
             iconName = focused ? 'favorite' : 'favorite-outline';
           if (route.name === 'Search') iconName = 'search';
-          if (route.name === 'CreatePost')
-            iconName = focused ? 'add-circle' : 'add-circle-outline';
-          if (route.name === 'Profile') iconName = focused ? 'person' : 'person-outline';
+          if (route.name === 'CreatePost') {
+            iconName = 'add';
+            iconSize = 38; // Make plus icon bigger
+            iconStyle = { marginTop: -6, marginLeft: -2 };
+          }
+          if (route.name === 'Profile') {
+            // Show profile photo as icon
+            return (
+              <View
+                style={{
+                  width: focused ? 35 : 31,
+                  height: focused ? 35 : 31,
+                  borderRadius: 18,
+                  borderWidth: focused ? 2.5 : 0.5,
+                  borderColor: focused ? '#8BA637' : '#B9B9B9',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: '#e6e6e6',
+                  marginTop: -2,
+                }}
+              >
+                <Image
+                  source={currentUser?.photoURL ? { uri: currentUser.photoURL } : require('./assets/default-profile-photo.png')}
+                  style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: '#fff' }}
+                  resizeMode="contain"
+                />
+              </View>
+            );
+          }
 
           return (
             <MaterialIcons
               name={iconName}
-              size={30}
+              size={iconSize}
               color={focused ? '#8BA637' : '#B9B9B9'}
+              style={iconStyle}
             />
           );
         },

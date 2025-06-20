@@ -14,12 +14,16 @@ import {
   Alert,
   ActivityIndicator,
   ScrollView,
+  Dimensions,
 } from 'react-native';
 import { db, auth, storage } from './firebaseConfig';
 import { collection, addDoc, serverTimestamp, query, orderBy, onSnapshot, doc, updateDoc, increment, getDoc } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
-import { MaterialIcons } from '@expo/vector-icons';
+import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import defaultProfilePhoto from './assets/default-profile-photo.png';
+
+const { width: screenWidth } = Dimensions.get('window');
 
 export default function PostScreen({ route, navigation }) {
   const currentUser = auth.currentUser;
@@ -80,14 +84,14 @@ export default function PostScreen({ route, navigation }) {
 
   const pickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.All,
-      allowsMultipleSelection: true,
+      mediaTypes: ImagePicker.MediaTypeOptions.Images, // Only images for simplicity in this flow
+      allowsEditing: true,
       aspect: [1, 1],
       quality: 0.8,
     });
 
     if (!result.canceled) {
-      setSelectedPhotos(result.assets.map(asset => asset.uri));
+      setSelectedPhotos([result.assets[0].uri]); // Only handle one photo for this UI
     }
   };
 
@@ -115,9 +119,7 @@ export default function PostScreen({ route, navigation }) {
     return new Promise((resolve, reject) => {
       uploadTask.on(
         "state_changed",
-        (snapshot) => {
-          // Optional: handle progress updates
-        },
+        (snapshot) => {},
         (error) => {
           console.error("Upload error:", error);
           blob.close();
@@ -134,7 +136,7 @@ export default function PostScreen({ route, navigation }) {
 
   const handleCreatePost = async () => {
     if ((!caption.trim() || caption.trim().length === 0) && (!selectedPhotos || selectedPhotos.length === 0)) {
-      Alert.alert("No content", "Please enter some text or select a photo/video to post.");
+      Alert.alert("No content", "Please enter some text or select a photo to post.");
       return;
     }
     if (!currentUser || !currentUserData) {
@@ -144,21 +146,15 @@ export default function PostScreen({ route, navigation }) {
 
     setIsUploading(true);
     try {
-      let uploadedURLs = [];
-      let mediaType = 'text';
       let imageUri = null;
+      let mediaType = 'text';
+
       if (selectedPhotos && selectedPhotos.length > 0) {
-        for (const photoUri of selectedPhotos) {
-          const uploadedURL = await uploadFileAsync(photoUri);
-          uploadedURLs.push(uploadedURL);
-        }
-        imageUri = uploadedURLs[0];
-        mediaType = selectedPhotos[0].toLowerCase().endsWith('.mp4') || 
-                   selectedPhotos[0].toLowerCase().endsWith('.mov') ? 'video' : 'image';
+        imageUri = await uploadFileAsync(selectedPhotos[0]);
+        mediaType = 'image';
       }
 
-      // Add post to Firestore
-      const postDoc = await addDoc(collection(db, "posts"), {
+      await addDoc(collection(db, "posts"), {
         userId: currentUser.uid,
         userName: currentUserData.displayName,
         userUsername: currentUserData.username,
@@ -172,12 +168,8 @@ export default function PostScreen({ route, navigation }) {
 
       console.log('Post created successfully!');
       setIsUploading(false);
-      
-      // Clear form
       setCaption('');
       setSelectedPhotos([]);
-      
-      // Navigate to the FeedStack tab
       navigation.navigate('MainTabs', { screen: 'FeedStack' });
 
     } catch (error) {
@@ -198,7 +190,6 @@ export default function PostScreen({ route, navigation }) {
       createdAt: serverTimestamp(),
     });
 
-    // Increment commentsCount on the post document
     const postRef = doc(db, 'posts', post.id);
     await updateDoc(postRef, {
       commentsCount: increment(1)
@@ -216,52 +207,111 @@ export default function PostScreen({ route, navigation }) {
   );
 
   const renderCreateMode = () => (
-    <ScrollView style={styles.createContainer} keyboardShouldPersistTaps="handled">
-      <View style={styles.createContent}>
-        <TextInput
-          placeholder="What's on your mind?"
-          placeholderTextColor="#aaa"
-          value={caption}
-          onChangeText={setCaption}
-          style={styles.captionInput}
-          multiline
-          editable={!isUploading}
-        />
-        
-        {selectedPhotos.length > 0 && (
-          <View style={styles.photoPreview}>
-            <Image source={{ uri: selectedPhotos[0] }} style={styles.previewImage} />
-            <Text style={styles.photoCount}>{selectedPhotos.length} photo{selectedPhotos.length > 1 ? 's' : ''} selected</Text>
-          </View>
-        )}
-        
-        <View style={styles.actionButtons}>
-          <TouchableOpacity 
-            style={styles.addPhotoButton} 
-            onPress={pickImage}
-            disabled={isUploading}
-          >
-            <MaterialIcons name="photo-camera" size={24} color="#8BA637" />
-            <Text style={styles.addPhotoText}>Add Photos</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={[
-              styles.postButton, 
-              { opacity: ((caption.trim().length > 0 || selectedPhotos.length > 0) && !isUploading) ? 1 : 0.5 }
-            ]} 
-            onPress={handleCreatePost}
-            disabled={(caption.trim().length === 0 && selectedPhotos.length === 0) || isUploading}
-          >
-            {isUploading ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
-            ) : (
-              <Text style={styles.postButtonText}>Post</Text>
-            )}
-          </TouchableOpacity>
+    <KeyboardAvoidingView 
+      style={{ flex: 1, backgroundColor: '#fff' }}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0}
+    >
+        <ScrollView style={styles.createContainer} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
+            {/* --- MOCK POST CARD START --- */}
+            <View style={styles.postCard}>
+                {/* Mock Header */}
+                <View style={styles.postHeader}>
+                    <View style={styles.postHeaderLeft}>
+                        <Image 
+                            source={currentUserData?.photoURL ? { uri: currentUserData.photoURL } : defaultProfilePhoto} 
+                            style={styles.avatar} 
+                        />
+                        <View>
+                            <Text style={styles.postUsername}>
+                                {currentUserData?.displayName || 'Your Name'}
+                                {currentUserData?.username ? (
+                                    <Text style={styles.postUsernameBracket}> (@{currentUserData.username})</Text>
+                                ) : null}
+                            </Text>
+                        </View>
+                    </View>
+                </View>
+
+                {/* Conditional Content Area */}
+                {selectedPhotos.length === 0 ? (
+                    // Text-only Post Mockup
+                    <View style={styles.textOnlyCaptionContainer}>
+                        <TextInput
+                            placeholder="What's on your mind?"
+                            placeholderTextColor="#b9b9b9"
+                            value={caption}
+                            onChangeText={setCaption}
+                            style={styles.textOnlyInput}
+                            multiline
+                            editable={!isUploading}
+                            autoFocus={true}
+                        />
+                    </View>
+                ) : (
+                    // Image Post Mockup
+                    <>
+                        <Image source={{ uri: selectedPhotos[0] }} style={styles.postImage} />
+                        <View style={styles.captionContainer}>
+                            <TextInput
+                                placeholder="Write a caption..."
+                                placeholderTextColor="#b9b9b9"
+                                value={caption}
+                                onChangeText={setCaption}
+                                style={styles.captionInput}
+                                multiline
+                                editable={!isUploading}
+                            />
+                        </View>
+                    </>
+                )}
+
+                {/* Mock Action Bar */}
+                <View style={styles.actionButtonsContainer}>
+                    <Pressable style={styles.actionButton}>
+                        <Ionicons name="heart-outline" size={28} color="#b9b9b9" />
+                    </Pressable>
+                    <Pressable style={styles.actionButton}>
+                        <Ionicons name="chatbubble-outline" size={28} color="#b9b9b9" />
+                    </Pressable>
+                    <View style={{ flex: 1 }} />
+                    <TouchableOpacity 
+                        style={styles.addPhotoButton} 
+                        onPress={pickImage}
+                        disabled={isUploading}
+                    >
+                        <MaterialIcons name="photo-camera" size={24} color="#fff" />
+                        <Text style={styles.addPhotoText}>
+                            {selectedPhotos.length > 0 ? 'Change Photo' : 'Add Photo'}
+                        </Text>
+                    </TouchableOpacity>
+                </View>
+            </View>
+            {/* --- MOCK POST CARD END --- */}
+        </ScrollView>
+
+        {/* --- ACTUAL CONTROLS AT THE BOTTOM --- */}
+        <View style={styles.bottomControlsContainer}>
+            <TouchableOpacity 
+                style={[
+                    styles.postButton,
+                    { 
+                        opacity: ((caption.trim().length > 0 || selectedPhotos.length > 0) && !isUploading) ? 1 : 0.5,
+                        width: '100%',
+                        alignSelf: 'center',
+                    }
+                ]} 
+                onPress={handleCreatePost}
+                disabled={(caption.trim().length === 0 && selectedPhotos.length === 0) || isUploading}
+            >
+                {isUploading ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                    <Text style={styles.postButtonText}>Post</Text>
+                )}
+            </TouchableOpacity>
         </View>
-      </View>
-    </ScrollView>
+    </KeyboardAvoidingView>
   );
 
   const renderViewMode = () => (
@@ -271,7 +321,7 @@ export default function PostScreen({ route, navigation }) {
         keyExtractor={item => item.id}
         renderItem={renderComment}
         ListHeaderComponent={() => (
-          <Image source={{ uri: post.imageUri }} style={styles.postImage} />
+          post?.imageUri ? <Image source={{ uri: post.imageUri }} style={styles.postImage} /> : null
         )}
         ListEmptyComponent={() => (
           <Text style={styles.noCommentsText}>No comments yet. Be the first!</Text>
@@ -290,7 +340,7 @@ export default function PostScreen({ route, navigation }) {
             value={newComment}
             onChangeText={setNewComment}
             placeholder="Add a comment..."
-            placeholderTextColor="#999"
+            placeholderTextColor="#b9b9b9"
           />
           <Pressable style={styles.sendButton} onPress={handleAddComment}>
             <MaterialIcons name="send" size={24} color="#8BA637" />
@@ -307,7 +357,7 @@ export default function PostScreen({ route, navigation }) {
           <MaterialIcons name="arrow-back" size={24} color="#53544D" />
         </Pressable>
         <Text style={styles.headerTitle}>
-          {mode === 'create' ? 'New Post' : post?.userName || 'Post'}
+          {mode === 'create' ? 'Create Post' : post?.userName || 'Post'}
         </Text>
         {mode === 'view' && (
           <Text style={styles.postDate}>{post?.date}</Text>
@@ -320,7 +370,6 @@ export default function PostScreen({ route, navigation }) {
 }
 
 const styles = StyleSheet.create({
-  /* Container Styles */
   safeArea: {
     flex: 1,
     backgroundColor: '#FFFFFF',
@@ -328,28 +377,22 @@ const styles = StyleSheet.create({
   container: {
     paddingBottom: 80,
   },
-  createContainer: {
-    flex: 1,
-  },
-  createContent: {
-    padding: 20,
-  },
-
-  /* Header Styles */
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 12,
     paddingHorizontal: 20,
     backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+    position: 'relative',
   },
   backButton: {
-    marginRight: 12,
+    position: 'absolute',
+    left: 20,
+    zIndex: 2,
+    padding: 4,
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: 24,
     color: '#53544D',
     fontFamily: 'PatrickHand-Regular',
     flex: 1,
@@ -361,80 +404,118 @@ const styles = StyleSheet.create({
     fontFamily: 'PatrickHand-Regular',
   },
 
-  /* Create Mode Styles */
-  captionInput: {
-    backgroundColor: '#f8f8f8',
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    borderRadius: 12,
-    paddingHorizontal: 15,
-    paddingTop: 15,
-    paddingBottom: 15,
+  /* --- Create Mode Styles (New) --- */
+  createContainer: {
+    flex: 1,
+  },
+  postCard: {
+    backgroundColor: '#FFFFFF',
+  },
+  postHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+  },
+  postHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    marginRight: 12,
+    backgroundColor: '#e6e6e6',
+  },
+  postUsername: {
+    fontSize: 16,
+    color: '#53544D',
+    fontFamily: 'PatrickHand-Regular',
+  },
+  postUsernameBracket: {
+    color: '#b9b9b9',
     fontSize: 16,
     fontFamily: 'PatrickHand-Regular',
-    marginBottom: 20,
-    textAlignVertical: 'top',
-    minHeight: 120,
-    color: '#333',
   },
-  photoPreview: {
-    marginBottom: 20,
-    alignItems: 'center',
+  textOnlyCaptionContainer: {
+    paddingHorizontal: 30,
+    paddingVertical: 20,
+    minHeight: 150,
   },
-  previewImage: {
-    width: 200,
-    height: 200,
-    borderRadius: 12,
-    marginBottom: 10,
-  },
-  photoCount: {
-    fontSize: 14,
+  textOnlyInput: {
     fontFamily: 'PatrickHand-Regular',
-    color: '#666',
+    fontSize: 24,
+    color: '#53544D',
+    lineHeight: 32,
   },
-  actionButtons: {
+  postImage: {
+    width: screenWidth,
+    height: screenWidth,
+    backgroundColor: '#e0e0e0',
+  },
+  captionContainer: {
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 10,
+  },
+  captionInput: {
+    fontFamily: 'PatrickHand-Regular',
+    fontSize: 16,
+    color: '#333',
+    lineHeight: 22,
+    padding: 0, // Remove default padding
+  },
+  actionButtonsContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 8,
+  },
+  actionButton: {
+    marginRight: 16,
+  },
+  bottomControlsContainer: {
+    padding: 20,
   },
   addPhotoButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f0f0f0',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
+    backgroundColor: '#8BA637',
+    paddingHorizontal: 25,
+    paddingVertical: 10,
     borderRadius: 25,
-    borderWidth: 1,
-    borderColor: '#8BA637',
+    marginLeft: 8,
+    alignSelf: 'flex-start',
+    marginTop: -8,
   },
   addPhotoText: {
     marginLeft: 8,
     fontSize: 16,
     fontFamily: 'PatrickHand-Regular',
-    color: '#8BA637',
+    color: '#fff',
+    fontWeight: 'bold',
   },
   postButton: {
     backgroundColor: '#8BA637',
-    paddingHorizontal: 30,
-    paddingVertical: 12,
+    paddingVertical: 10,
     borderRadius: 25,
+    justifyContent: 'center',
+    alignItems: 'center',
+    minWidth: 120,
+    width: '100%',
+    alignSelf: 'center',
   },
   postButtonText: {
-    fontSize: 16,
+    fontSize: 18,
     fontFamily: 'PatrickHand-Regular',
     color: '#FFFFFF',
     fontWeight: 'bold',
   },
 
-  /* Post Styles */
-  postImage: {
-    width: '100%',
-    aspectRatio: 1,
-    marginBottom: 10,
-    backgroundColor: '#ccc',
-  },
-
-  /* Comments Section */
+  /* --- View Mode / Comments Styles --- */
   noCommentsText: {
     fontSize: 16,
     fontFamily: 'PatrickHand-Regular',
@@ -468,8 +549,6 @@ const styles = StyleSheet.create({
     textAlign: 'right',
     marginTop: 4,
   },
-
-  /* Input Section */
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -1,8 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, Image, SafeAreaView, Text, ScrollView, Dimensions, Pressable } from 'react-native';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { View, StyleSheet, Image, SafeAreaView, Text, ScrollView, Dimensions, Pressable, Animated } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { db, auth } from './firebaseConfig';
-import { doc, onSnapshot, collection, query, where, orderBy } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { Alert, ActivityIndicator } from 'react-native';
 import { functions } from './firebaseConfig';
@@ -26,6 +25,11 @@ export default function ProfileModal({ navigation, route }) {
   const [loading, setLoading] = useState(true);
   const [followerCount, setFollowerCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
+  const [isCloseFriend, setIsCloseFriend] = useState(false);
+
+  // For the animated popdown notification
+  const [popdownMessage, setPopdownMessage] = useState('');
+  const popdownAnim = useRef(new Animated.Value(-150)).current;
 
   // Cloud Functions
   const requestToFollowUser = httpsCallable(functions, 'requestToFollowUser');
@@ -39,10 +43,12 @@ export default function ProfileModal({ navigation, route }) {
     let unsubscribeFollowing = () => {};
     let unsubscribeRequest = () => {};
     let unsubscribeFollowedBy = () => {};
+    let unsubscribeCloseFriend = () => {};
 
-    const userRef = doc(db, 'users', userId);
-    unsubscribeUser = onSnapshot(userRef, (docSnap) => {
-      if (docSnap.exists()) {
+
+    const userRef = db.collection('users').doc(userId);
+    unsubscribeUser = userRef.onSnapshot((docSnap) => {
+      if (docSnap.exists) {
         setUser({ id: docSnap.id, ...docSnap.data() });
       } else {
         setUser(null);
@@ -51,15 +57,22 @@ export default function ProfileModal({ navigation, route }) {
     });
 
     if (!isCurrentUser && currentUserId) {
-      const followingDocRef = doc(db, 'following', currentUserId, 'userFollowing', userId);
-      unsubscribeFollowing = onSnapshot(followingDocRef, (docSnap) => setIsFollowing(docSnap.exists()));
+      const followingDocRef = db.collection('following').doc(currentUserId).collection('userFollowing').doc(userId);
+      unsubscribeFollowing = followingDocRef.onSnapshot((docSnap) => setIsFollowing(docSnap.exists));
 
-      const requestDocRef = doc(db, 'users', userId, 'followRequests', currentUserId);
-      unsubscribeRequest = onSnapshot(requestDocRef, (docSnap) => setHasRequested(docSnap.exists()));
+      const requestDocRef = db.collection('users').doc(userId).collection('followRequests').doc(currentUserId);
+      unsubscribeRequest = requestDocRef.onSnapshot((docSnap) => setHasRequested(docSnap.exists));
 
-      // Note: This path `users/${currentUserId}/followers` assumes you store a user's followers in their own document.
-      const followedByDocRef = doc(db, 'users', currentUserId, 'followers', userId);
-      unsubscribeFollowedBy = onSnapshot(followedByDocRef, (docSnap) => setIsFollowedBy(docSnap.exists()));
+      const followedByDocRef = db.collection('followers').doc(currentUserId).collection('userFollowers').doc(userId);
+      unsubscribeFollowedBy = followedByDocRef.onSnapshot((docSnap) => setIsFollowedBy(docSnap.exists));
+      
+      unsubscribeCloseFriend = followingDocRef.onSnapshot((docSnap) => {
+        if (docSnap.exists) {
+          setIsCloseFriend(!!docSnap.data().isCloseFriend);
+        } else {
+          setIsCloseFriend(false);
+        }
+      });
     }
 
     return () => {
@@ -67,14 +80,15 @@ export default function ProfileModal({ navigation, route }) {
       unsubscribeFollowing();
       unsubscribeRequest();
       unsubscribeFollowedBy();
+      unsubscribeCloseFriend();
     };
   }, [userId, currentUserId, isCurrentUser]);
 
   useEffect(() => {
     if (!userId) return;
-    const postsRef = collection(db, 'posts');
-    const q = query(postsRef, where("userId", "==", userId), orderBy('createdAt', 'desc'));
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+    const postsRef = db.collection('posts');
+    const q = postsRef.where("userId", "==", userId).orderBy('createdAt', 'desc');
+    const unsubscribe = q.onSnapshot((querySnapshot) => {
       setUserPosts(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
     return () => unsubscribe();
@@ -83,12 +97,12 @@ export default function ProfileModal({ navigation, route }) {
   useEffect(() => {
     if (!userId) return;
     // Listen for follower and following counts
-    const followersRef = collection(db, 'followers', userId, 'userFollowers');
-    const unsubscribeFollowersCount = onSnapshot(followersRef, (snapshot) => {
+    const followersRef = db.collection('followers').doc(userId).collection('userFollowers');
+    const unsubscribeFollowersCount = followersRef.onSnapshot((snapshot) => {
       setFollowerCount(snapshot.size);
     });
-    const followingRef = collection(db, 'following', userId, 'userFollowing');
-    const unsubscribeFollowingCount = onSnapshot(followingRef, (snapshot) => {
+    const followingRef = db.collection('following').doc(userId).collection('userFollowing');
+    const unsubscribeFollowingCount = followingRef.onSnapshot((snapshot) => {
       setFollowingCount(snapshot.size);
     });
     return () => {
@@ -96,6 +110,26 @@ export default function ProfileModal({ navigation, route }) {
       unsubscribeFollowingCount();
     };
   }, [userId]);
+
+  const showPopdown = useCallback((message) => {
+    setPopdownMessage(message);
+    // Animate In
+    Animated.spring(popdownAnim, {
+      toValue: 20, // Position below the status bar, inside SafeAreaView
+      useNativeDriver: true,
+      tension: 100,
+      friction: 12,
+    }).start();
+
+    // Set a timer to animate out
+    setTimeout(() => {
+      Animated.timing(popdownAnim, {
+        toValue: -150, // Animate back off-screen
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+    }, 2500); // Popdown stays for 2.5 seconds
+  }, [popdownAnim]);
 
   const handleRequestFollow = useCallback(async () => {
     if (isCurrentUser || isFollowing || hasRequested) return;
@@ -146,6 +180,25 @@ export default function ProfileModal({ navigation, route }) {
     );
   }, [isCurrentUser, userId, isFollowing, user?.username]);
 
+  const handleToggleCloseFriend = async () => {
+    if (!currentUserId || !userId) return;
+    const followingDocRef = db.collection('following').doc(currentUserId).collection('userFollowing').doc(userId);
+    const newCloseFriendStatus = !isCloseFriend;
+    
+    // Show popdown with the appropriate message for the action
+    showPopdown(newCloseFriendStatus ? 'Added to close friends' : 'Removed from close friends');
+
+    try {
+      // Optimistic UI update
+      setIsCloseFriend(newCloseFriendStatus);
+      await followingDocRef.set({ isCloseFriend: newCloseFriendStatus }, { merge: true });
+    } catch (e) {
+      // Revert on failure
+      setIsCloseFriend(!newCloseFriendStatus);
+      Alert.alert('Error', 'Could not update close friends. Please try again.');
+    }
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFFFFF' }}>
@@ -173,7 +226,20 @@ export default function ProfileModal({ navigation, route }) {
 
   const renderFollowButton = () => {
     if (isFollowing) {
-      return <Pressable style={styles.followingButton} onPress={handleUnfollow}><Text style={styles.followingButtonText}>Following</Text></Pressable>;
+      return (
+        <>
+          <Pressable style={styles.followingButton} onPress={handleUnfollow}>
+            <Text style={styles.followingButtonText}>Following</Text>
+          </Pressable>
+          <Pressable style={styles.closeFriendToggleButton} onPress={handleToggleCloseFriend}>
+            <MaterialIcons
+              name={isCloseFriend ? 'star' : 'star-border'}
+              size={36}
+              color={isCloseFriend ? '#8BA637' : '#b9b9b9'}
+            />
+          </Pressable>
+        </>
+      );
     }
     if (hasRequested) {
       return <Pressable style={styles.requestedButton} onPress={handleWithdrawRequest}><Text style={styles.requestedButtonText}>Requested</Text></Pressable>;
@@ -193,6 +259,9 @@ export default function ProfileModal({ navigation, route }) {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+      <Animated.View style={[styles.popdownContainer, { transform: [{ translateY: popdownAnim }] }]}>
+        <Text style={styles.popdownText}>{popdownMessage}</Text>
+      </Animated.View>
       <View style={{ flex: 1 }}>
         <Pressable style={styles.backButton} onPress={() => navigation.goBack()}>
           <MaterialIcons name="arrow-back" size={24} color="#b9b9b9" />
@@ -442,5 +511,27 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+  },
+  closeFriendToggleButton: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  popdownContainer: {
+    position: 'absolute',
+    top: 30,
+    left: 35,
+    right: 35,
+    backgroundColor: '#8BA637',
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000,
+  },
+  popdownText: {
+    color: 'white',
+    fontFamily: 'PatrickHand-Regular',
+    fontSize: 18,
   },
 });
