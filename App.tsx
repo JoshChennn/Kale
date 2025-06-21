@@ -46,6 +46,7 @@ import CreateProfilePhotoScreen from './CreateProfilePhotoScreen';
 
 const Tab = createBottomTabNavigator();
 const FeedStack = createStackNavigator();
+const SearchStack = createStackNavigator();
 const RootStack = createStackNavigator();
 const AuthStack = createStackNavigator<AuthStackParamList>();
 
@@ -88,6 +89,24 @@ function FeedStackScreen() {
   );
 }
 
+function SearchStackScreen() {
+  return (
+    <SearchStack.Navigator
+      screenOptions={{
+        headerShown: false,
+        gestureEnabled: true,
+        gestureResponseDistance: 500,
+        cardStyleInterpolator: CardStyleInterpolators.forHorizontalIOS,
+      }}
+    >
+      <SearchStack.Screen name="Search" component={SearchScreen} />
+      <SearchStack.Screen name="ProfileModal" component={ProfileModal} />
+      <SearchStack.Screen name="PostDetail" component={PostScreen} />
+      <SearchStack.Screen name="UserPostsFeed" component={UserPostsFeed} />
+    </SearchStack.Navigator>
+  );
+}
+
 function MainTabs({ currentUser }: { currentUser: FirebaseUser }) {
   return (
     <Tab.Navigator
@@ -98,6 +117,7 @@ function MainTabs({ currentUser }: { currentUser: FirebaseUser }) {
           backgroundColor: '#FFFFFF',
           alignItems: 'center',
           paddingTop: 8,
+          paddingHorizontal: 20,
           borderTopWidth: 0,
           elevation: 0,
           shadowOpacity: 0,
@@ -113,7 +133,7 @@ function MainTabs({ currentUser }: { currentUser: FirebaseUser }) {
             return <IconComponent width={focused ? 32 : 28} height={focused ? 32 : 28} />;
           }
           
-          if (route.name === 'Search') {
+          if (route.name === 'SearchStack') {
             // Use SVG icons for search tab
             const IconComponent = focused ? SearchActiveIcon : SearchInactiveIcon;
             return <IconComponent width={30} height={30} />;
@@ -168,8 +188,8 @@ function MainTabs({ currentUser }: { currentUser: FirebaseUser }) {
         options={{ title: 'Feed' }}
       />
       <Tab.Screen
-        name="Search"
-        component={SearchScreen}
+        name="SearchStack"
+        component={SearchStackScreen}
         options={{ title: 'Search' }}
       />
       <Tab.Screen
@@ -342,11 +362,6 @@ export default function App() {
           <RootStack.Screen
             name="PostDetail"
             component={PostScreen}
-            options={{ gestureEnabled: true, gestureResponseDistance: 500 }}
-          />
-          <RootStack.Screen
-            name="ProfileModal"
-            component={ProfileModal}
             options={{ gestureEnabled: true, gestureResponseDistance: 500 }}
           />
           <RootStack.Screen

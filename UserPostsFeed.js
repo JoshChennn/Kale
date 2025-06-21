@@ -388,12 +388,12 @@ const CommentsBottomSheet = ({ isVisible, onClose, post, navigation, closeCommen
   };
 
   const handleProfilePress = (userId) => {
-    closeCommentsSheet();
-    if (userId === currentUserData?.uid) {
-      navigation.navigate('MainTabs', { screen: 'Profile' });
-    } else {
-      navigation.navigate('ProfileModal', { userId, presentation: 'modal' });
-    }
+    Keyboard.dismiss();
+    closeCommentsSheet(); // Close this sheet first
+    // Navigate to the profile, now with a slight delay if needed
+    setTimeout(() => {
+      navigation.navigate('ProfileModal', { userId });
+    }, 150); // Small delay to allow sheet to start closing
   };
 
   // MODIFIED: This function now renders a single comment row (parent or reply)
@@ -936,11 +936,10 @@ export default function UserPostsFeed({ navigation, route }) {
   };
 
   const handleProfilePress = (userId) => {
-    if (userId === currentUserId) {
-      navigation.navigate('MainTabs', { screen: 'Profile' });
-    } else {
-      navigation.navigate('ProfileModal', { userId, presentation: 'modal' });
-    }
+    // If viewing own profile feed, do nothing
+    if (userId === route.params?.userId) return;
+    
+    navigation.navigate('ProfileModal', { userId });
   };
 
   // Show system menu for post actions

@@ -327,12 +327,10 @@ const CommentsBottomSheet = ({ isVisible, onClose, post, navigation, closeCommen
   };
 
   const handleProfilePress = (userId) => {
-    closeCommentsSheet && closeCommentsSheet();
-    if (userId === currentUserData?.uid) {
-      navigation.navigate('MainTabs', { screen: 'Profile' });
-    } else {
-      navigation.navigate('ProfileModal', { userId, presentation: 'modal' });
-    }
+    closeCommentsSheet();
+    setTimeout(() => {
+      navigation.navigate('ProfileModal', { userId });
+    }, 150);
   };
 
   const renderSingleCommentRow = (comment, isReply = false) => {

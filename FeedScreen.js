@@ -34,7 +34,7 @@ import {
   increment,
   getDoc,
   deleteDoc,
-  batch,
+  writeBatch,
 } from 'firebase/firestore';
 import defaultProfilePhoto from './assets/default-profile-photo.png';
 import * as Haptics from 'expo-haptics'; // --- HAPTICS: Import the library
@@ -67,7 +67,6 @@ export default function FeedScreen({ navigation }) {
     'Close Friends': false,
     'Everyone': false,
   });
-  const [footerPosition, setFooterPosition] = useState(-250);
   const [showDropdown, setShowDropdown] = useState(false);
   const [selectedFilter, setSelectedFilter] = useState('Close Friends');
   const [refreshing, setRefreshing] = useState(false);
@@ -98,6 +97,8 @@ export default function FeedScreen({ navigation }) {
 
   // Add state to control scroll-to-top button visibility
   const [showScrollTop, setShowScrollTop] = useState(false);
+
+  const [headerY, setHeaderY] = useState(0);
 
   // Add animated value for scroll-to-top button
   const scrollTopAnim = useRef(new Animated.Value(0)).current; // 0: hidden, 1: visible
@@ -690,20 +691,10 @@ export default function FeedScreen({ navigation }) {
     const scrollPosition = contentOffset.y;
     const screenHeight = layoutMeasurement.height;
     const contentHeight = contentSize.height;
-    
+
     // Calculate how far from the bottom we are
     const distanceFromBottom = contentHeight - (scrollPosition + screenHeight);
     
-    // If posts are cleared for the current filter, set height to -150
-    if (clearedFeeds[selectedFilter]) {
-      setFooterPosition(-150);
-    } else if (distanceFromBottom > 320) {
-      // If the footer is below the screen, set height to 0
-      setFooterPosition(-250);
-    } else {
-      // Otherwise, calculate inverse height
-      setFooterPosition(Math.max(-250, -distanceFromBottom));
-    }
     // Show scroll-to-top button if scrolled down more than 200px and not near footer
     setShowScrollTop(scrollPosition > 200 && distanceFromBottom > 400);
     setNearFooter(distanceFromBottom <= 400);
@@ -785,7 +776,7 @@ export default function FeedScreen({ navigation }) {
     try {
       // Filter out follow_request notifications
       const notificationsToDelete = notifications.filter(n => n.type !== 'follow_request');
-      const batch = db.batch();
+      const batch = writeBatch(db); // Use writeBatch for v9 SDK
       notificationsToDelete.forEach(n => {
         const notifRef = doc(db, 'users', currentUser.uid, 'notifications', n.id);
         batch.delete(notifRef);
@@ -843,6 +834,11 @@ export default function FeedScreen({ navigation }) {
       return () => clearTimeout(timeout);
     }
   }, [refreshing]);
+
+  const handleHeaderLayout = (event) => {
+    const { y } = event.nativeEvent.layout;
+    setHeaderY(y);
+  };
 
   if (loading && !refreshing && !filterChanging) {
     return (
@@ -918,7 +914,7 @@ export default function FeedScreen({ navigation }) {
           opacity: postAndFooterOpacity,
           transform: [{ translateY: postTranslateY }]
         }}>
-          <View style={styles.postCard}>
+          <View style={[styles.postCard, { backgroundColor: '#FFFFFF' }]}>
             <Pressable onPress={handleDoubleTap} style={styles.textPostPressable}>
               <View style={styles.postHeader}>
                 <Pressable
@@ -1009,7 +1005,7 @@ export default function FeedScreen({ navigation }) {
         opacity: postAndFooterOpacity,
         transform: [{ translateY: postTranslateY }]
       }}>
-        <View style={styles.postCard}>
+        <View style={[styles.postCard, { backgroundColor: '#FFFFFF' }]}>
           <View style={styles.postHeader}>
             <Pressable
               style={styles.postHeaderLeft}
@@ -1270,7 +1266,7 @@ export default function FeedScreen({ navigation }) {
   };
 
   const renderStories = ({ item }) => (
-    <View style={styles.storiesContainer}>
+    <View style={[styles.storiesContainer, { backgroundColor: '#FFFFFF' }]}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
         {item.storyData.map(storyBlock => (
           <Pressable key={storyBlock.id} style={styles.storyItem} onPress={() => navigation.navigate('StoryViewer', { stories: storyBlock.uriList, initialIndex: 0 })}>
@@ -1415,7 +1411,7 @@ export default function FeedScreen({ navigation }) {
         // MODIFICATION: Use animated values for the cleared text
         return (
           <Animated.View style={[
-            styles.clearedContainer, 
+            styles.clearedContainer, { backgroundColor: '#FFFFFF' }, 
             { 
               opacity: clearedTextOpacity,
               transform: [
@@ -1478,22 +1474,18 @@ export default function FeedScreen({ navigation }) {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
-      <View
-        style={{
-          position: 'absolute',
-          left: 0, right: 0, bottom: 0,
-          height: footerPosition > -250 ? footerPosition + 150 : 0,
-          backgroundColor: '#8BA637',
-        }}
-      />
+    <SafeAreaView style={styles.container}>
       <SectionList
         ref={listRef}
         sections={sections}
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
         renderSectionHeader={renderSectionHeader}
-        ListHeaderComponent={<Text style={styles.header}>KALE</Text>}
+        ListHeaderComponent={
+          <View onLayout={handleHeaderLayout}>
+            <Text style={styles.header}>KALE</Text>
+          </View>
+        }
         ListFooterComponent={ListFooterComponent}
         ListEmptyComponent={() => null}
         contentContainerStyle={styles.listContentContainer}
@@ -1508,6 +1500,7 @@ export default function FeedScreen({ navigation }) {
             progressBackgroundColor="#FFFFFF"
           />
         }
+        style={{ backgroundColor: '#FFFFFF' }}
       />
       {/* Animated Floating Scroll-to-Top Button */}
       <Animated.View
@@ -1555,7 +1548,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF' 
   },
   listContentContainer: {
-    paddingBottom: 100,
+    paddingBottom: 20,
+    backgroundColor: '#FFFFFF',
   },
   header: {
     fontSize: 40,
@@ -1680,6 +1674,7 @@ const styles = StyleSheet.create({
   storiesContainer: {
     paddingVertical: 10,
     marginBottom: 10,
+    backgroundColor: '#FFFFFF',
   },
   storyItem: {
     width: storySize + 10,
@@ -1704,6 +1699,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     overflow: 'hidden',
     width: screenWidth,
+    backgroundColor: '#FFFFFF',
   },
   postHeader: {
     flexDirection: 'row',
@@ -1799,12 +1795,13 @@ const styles = StyleSheet.create({
     fontFamily: 'PatrickHand-Regular',
   },
   footerContainer: {
-    paddingVertical: 40,
+    paddingTop: 40,
+    paddingBottom: 120,
     alignItems: 'center',
-    borderTopWidth: 1,
-    borderTopColor: '#E9E9E9',
     marginTop: 20,
     backgroundColor: '#8BA637',
+    marginHorizontal: 20,
+    borderRadius: 20,
   },
   footerTitle: {
     fontFamily: 'PatrickHand-Regular',
@@ -1830,7 +1827,7 @@ const styles = StyleSheet.create({
     height: 180,
     borderRadius: 90,
     borderWidth: 4,
-    borderColor: '#CADE81',
+    borderColor: '#E0E0E0',
     position: 'absolute',
   },
   clearButton: {
@@ -1849,6 +1846,7 @@ const styles = StyleSheet.create({
     paddingVertical: 80,
     alignItems: 'center',
     minHeight: 300, // Ensure it has some height
+    backgroundColor: '#FFFFFF',
   },
   clearedText: {
     fontFamily: 'PatrickHand-Regular',
