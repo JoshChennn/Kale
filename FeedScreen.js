@@ -16,6 +16,7 @@ import {
   Platform,
   ActionSheetIOS,
   TouchableOpacity,
+  RefreshControl,
 } from 'react-native';
 import { db, auth, functions } from './firebaseConfig';
 import { httpsCallable } from 'firebase/functions';
@@ -69,6 +70,8 @@ export default function FeedScreen({ navigation }) {
   const [footerPosition, setFooterPosition] = useState(-250);
   const [showDropdown, setShowDropdown] = useState(false);
   const [selectedFilter, setSelectedFilter] = useState('Close Friends');
+  const [refreshing, setRefreshing] = useState(false);
+  const [filterChanging, setFilterChanging] = useState(false);
   const currentUser = auth.currentUser;
 
   // Refs for animations
@@ -82,6 +85,7 @@ export default function FeedScreen({ navigation }) {
   const lastTap = useRef(0);
   const heartAnims = useRef(new Map()).current;
   const likeButtonAnims = useRef(new Map()).current;
+  const dataLoadedRef = useRef(false);
 
   // Add animated values for cleared text animation
   const clearedTextOpacity = useRef(new Animated.Value(0)).current;
@@ -150,7 +154,10 @@ export default function FeedScreen({ navigation }) {
       return () => {}; // Return empty cleanup function
     }
 
-    setLoading(true);
+    // Only set loading to true if not currently refreshing and not changing filters
+    if (!refreshing && !filterChanging) {
+      setLoading(true);
+    }
     let unsubscribePosts = () => {}; // Holder for the nested listener
 
     const userFollowingRef = collection(db, 'following', currentUser.uid, 'userFollowing');
@@ -191,6 +198,16 @@ export default function FeedScreen({ navigation }) {
           if (postDocs.length === 0) {
             setPosts([]);
             setLoading(false);
+            
+            // Stop refreshing if we're currently refreshing
+            if (refreshing) {
+              setRefreshing(false);
+            }
+            
+            // Stop filter changing if we're currently changing filters
+            if (filterChanging) {
+              setFilterChanging(false);
+            }
             return;
           }
 
@@ -229,11 +246,31 @@ export default function FeedScreen({ navigation }) {
           
           setPosts(fetchedPosts);
           setLoading(false); // Stop loading once posts are processed
+          
+          // Stop refreshing if we're currently refreshing
+          if (refreshing) {
+            setRefreshing(false);
+          }
+          
+          // Stop filter changing if we're currently changing filters
+          if (filterChanging) {
+            setFilterChanging(false);
+          }
         });
       } else {
         // If user follows no one (or no close friends), show an empty feed
         setPosts([]);
         setLoading(false);
+        
+        // Stop refreshing if we're currently refreshing
+        if (refreshing) {
+          setRefreshing(false);
+        }
+        
+        // Stop filter changing if we're currently changing filters
+        if (filterChanging) {
+          setFilterChanging(false);
+        }
       }
 
       // --- STORIES LOGIC: Fetch stories from filtered users AND the current user
@@ -269,8 +306,18 @@ export default function FeedScreen({ navigation }) {
               return null;
             }).filter(Boolean);
             setStories(storyEntries);
+            
+            // Stop refreshing if we're currently refreshing and posts are also loaded
+            if (refreshing && !loading) {
+              setRefreshing(false);
+            }
         } catch (error) {
             console.error("Error fetching stories: ", error);
+            
+            // Stop refreshing even if there's an error
+            if (refreshing) {
+              setRefreshing(false);
+            }
         }
       }
       fetchStories();
@@ -674,6 +721,29 @@ export default function FeedScreen({ navigation }) {
     }
   };
 
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    
+    // Haptic feedback for refresh
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
+    // Reset cleared feeds state to allow fresh data
+    setClearedFeeds({
+      'Close Friends': false,
+      'Everyone': false,
+    });
+    
+    // Reset animation values
+    clearAnimation.setValue(0);
+    clearedOpacity.setValue(0);
+    clearedTextOpacity.setValue(0);
+    clearedTextScale.setValue(0.8);
+    clearedTextTranslateY.setValue(20);
+    
+    // The existing Firebase listeners will automatically fetch fresh data
+    // and stop refreshing when data is loaded
+  };
+
   // Show system menu for post actions
   const showPostActions = (postId) => {
     if (Platform.OS === 'ios') {
@@ -738,7 +808,43 @@ export default function FeedScreen({ navigation }) {
     }).start();
   }, [showScrollTop]);
 
-  if (loading) {
+  // Ensure filterChanging doesn't get stuck
+  useEffect(() => {
+    if (filterChanging) {
+      const timeout = setTimeout(() => {
+        setFilterChanging(false);
+      }, 3000); // Maximum 3 seconds for filter change
+      
+      return () => clearTimeout(timeout);
+    }
+  }, [filterChanging]);
+
+  // Add minimum refresh time to prevent flickering
+  useEffect(() => {
+    if (refreshing) {
+      const minRefreshTime = setTimeout(() => {
+        // Only stop refreshing if data has been loaded (loading is false)
+        if (!loading) {
+          setRefreshing(false);
+        }
+      }, 800); // Minimum 800ms for refresh to feel natural
+      
+      return () => clearTimeout(minRefreshTime);
+    }
+  }, [refreshing, loading]);
+
+  // Ensure refreshing doesn't get stuck
+  useEffect(() => {
+    if (refreshing) {
+      const timeout = setTimeout(() => {
+        setRefreshing(false);
+      }, 5000); // Maximum 5 seconds for refresh
+      
+      return () => clearTimeout(timeout);
+    }
+  }, [refreshing]);
+
+  if (loading && !refreshing && !filterChanging) {
     return (
       <SafeAreaView style={styles.container}>
         <ActivityIndicator style={{ flex: 1 }} size="large" color="#8BA637" />
@@ -1202,7 +1308,10 @@ export default function FeedScreen({ navigation }) {
                 style={styles.filterButton}
                 onPress={() => {
                   clearAnimation.setValue(0);
+                  setFilterChanging(true);
                   setSelectedFilter(selectedFilter === 'Close Friends' ? 'Everyone' : 'Close Friends');
+                  // Reset filterChanging after a short delay
+                  setTimeout(() => setFilterChanging(false), 1000);
                 }}
               >
                 <Text style={styles.filterText}>{selectedFilter}</Text>
@@ -1228,7 +1337,10 @@ export default function FeedScreen({ navigation }) {
               style={styles.filterButton}
               onPress={() => {
                 clearAnimation.setValue(0);
+                setFilterChanging(true);
                 setSelectedFilter(selectedFilter === 'Close Friends' ? 'Everyone' : 'Close Friends');
+                // Reset filterChanging after a short delay
+                setTimeout(() => setFilterChanging(false), 1000);
               }}
             >
               <Text style={styles.filterText}>{selectedFilter}</Text>
@@ -1389,6 +1501,13 @@ export default function FeedScreen({ navigation }) {
         showsVerticalScrollIndicator={false}
         onScroll={handleScroll}
         scrollEventThrottle={16}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            progressBackgroundColor="#FFFFFF"
+          />
+        }
       />
       {/* Animated Floating Scroll-to-Top Button */}
       <Animated.View
@@ -1413,7 +1532,7 @@ export default function FeedScreen({ navigation }) {
           activeOpacity={0.8}
           style={styles.scrollTopButton}
         >
-          <Ionicons name="arrow-up" size={38} style={styles.scrollTopButtonIcon} />
+          <Ionicons name="arrow-up" size={30} style={styles.scrollTopButtonIcon} />
         </TouchableOpacity>
       </Animated.View>
       {selectedPostForComments && (

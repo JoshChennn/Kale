@@ -7,6 +7,10 @@ import { Alert, ActivityIndicator } from 'react-native';
 import { functions } from './firebaseConfig';
 import defaultProfilePhoto from './assets/default-profile-photo.png';
 
+// Import SVG icons for close friends toggle
+import StarActiveIcon from './assets/star-active.svg';
+import StarInactiveIcon from './assets/star-inactive.svg';
+
 const screenWidth = Dimensions.get('window').width;
 const gridMargin = 1;
 const imgSize = (screenWidth - gridMargin * 2) / 3;
@@ -232,11 +236,11 @@ export default function ProfileModal({ navigation, route }) {
             <Text style={styles.followingButtonText}>Following</Text>
           </Pressable>
           <Pressable style={styles.closeFriendToggleButton} onPress={handleToggleCloseFriend}>
-            <MaterialIcons
-              name={isCloseFriend ? 'star' : 'star-border'}
-              size={36}
-              color={isCloseFriend ? '#8BA637' : '#b9b9b9'}
-            />
+            {isCloseFriend ? (
+              <StarActiveIcon width={32} height={32} />
+            ) : (
+              <StarInactiveIcon width={32} height={32} />
+            )}
           </Pressable>
         </>
       );
@@ -515,6 +519,7 @@ const styles = StyleSheet.create({
   closeFriendToggleButton: {
     justifyContent: 'center',
     alignItems: 'center',
+    marginTop: -2,
   },
   popdownContainer: {
     position: 'absolute',

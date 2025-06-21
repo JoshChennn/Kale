@@ -130,20 +130,20 @@ function MainTabs({ currentUser }: { currentUser: FirebaseUser }) {
             return (
               <View
                 style={{
-                  width: focused ? 37 : 31,
-                  height: focused ? 37 : 31,
-                  borderRadius: 18,
-                  borderWidth: focused ? 4 : 0.5,
+                  width: focused ? 37 : 33,
+                  height: focused ? 37 : 33,
+                  borderRadius: 18.5,
+                  borderWidth: focused ? 2.5 : 0,
                   borderColor: focused ? '#8BA637' : '#B9B9B9',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  backgroundColor: '#e6e6e6',
+                  backgroundColor: '#fff',
                   marginTop: -2,
                 }}
               >
                 <Image
                   source={currentUser?.photoURL ? { uri: currentUser.photoURL } : require('./assets/default-profile-photo.png')}
-                  style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: '#fff' }}
+                  style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: '#fff' }}
                   resizeMode="contain"
                 />
               </View>

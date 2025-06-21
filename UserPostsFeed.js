@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'; // ADDED: useMemo
 import {
   View, StyleSheet, Image, SafeAreaView, Text, ScrollView, Dimensions, Pressable, ActivityIndicator, Animated, Modal, TextInput, KeyboardAvoidingView, Platform, FlatList, TouchableWithoutFeedback, Keyboard, PanResponder, Alert,
-  ActionSheetIOS,
+  ActionSheetIOS, RefreshControl,
 } from 'react-native';
 // ADDED: Import Swipeable from react-native-gesture-handler
 import { Swipeable } from 'react-native-gesture-handler';
@@ -616,6 +616,7 @@ export default function UserPostsFeed({ navigation, route }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [likedPosts, setLikedPosts] = useState(new Set());
+  const [refreshing, setRefreshing] = useState(false);
   const lastTap = useRef(0);
   const heartAnims = useRef(new Map()).current;
   const likeButtonAnims = useRef(new Map()).current;
@@ -634,6 +635,16 @@ export default function UserPostsFeed({ navigation, route }) {
 
   const closeCommentsSheet = () => {
     setCommentsSheetVisible(false);
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    
+    // Haptic feedback for refresh
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
+    // The existing Firebase listeners will automatically fetch fresh data
+    // and stop refreshing when data is loaded
   };
 
   // Function to scroll to specific post instantly
@@ -668,6 +679,31 @@ export default function UserPostsFeed({ navigation, route }) {
       }
     });
   }, [posts]);
+
+  // Add minimum refresh time to prevent flickering
+  useEffect(() => {
+    if (refreshing) {
+      const minRefreshTime = setTimeout(() => {
+        // Only stop refreshing if data has been loaded (loading is false)
+        if (!loading) {
+          setRefreshing(false);
+        }
+      }, 800); // Minimum 800ms for refresh to feel natural
+      
+      return () => clearTimeout(minRefreshTime);
+    }
+  }, [refreshing, loading]);
+
+  // Ensure refreshing doesn't get stuck
+  useEffect(() => {
+    if (refreshing) {
+      const timeout = setTimeout(() => {
+        setRefreshing(false);
+      }, 5000); // Maximum 5 seconds for refresh
+      
+      return () => clearTimeout(timeout);
+    }
+  }, [refreshing]);
 
   useEffect(() => {
     if (!userId) return;
@@ -738,6 +774,11 @@ export default function UserPostsFeed({ navigation, route }) {
           );
         } finally {
           setLoading(false);
+          
+          // Stop refreshing if we're currently refreshing
+          if (refreshing) {
+            setRefreshing(false);
+          }
         }
       }, 
       (error) => {
@@ -956,7 +997,7 @@ export default function UserPostsFeed({ navigation, route }) {
     );
   };
 
-  if (loading) {
+  if (loading && !refreshing) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
@@ -983,6 +1024,15 @@ export default function UserPostsFeed({ navigation, route }) {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         ref={scrollViewRef}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor="#8BA637"
+            colors={["#8BA637"]}
+            progressBackgroundColor="#FFFFFF"
+          />
+        }
       >
         {posts.map((post) => {
           if (!heartAnims.has(post.id)) heartAnims.set(post.id, new Animated.Value(0));
