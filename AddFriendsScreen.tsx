@@ -822,7 +822,7 @@ const styles = StyleSheet.create({
     contactName: {
         fontSize: 20,
         fontFamily: 'PatrickHand-Regular',
-        color: '#333',
+        color: '#53544D',
         marginTop: -6,
     },
     contactDetail: {
@@ -936,7 +936,7 @@ const styles = StyleSheet.create({
     modalStep: {
         fontSize: 24,
         fontFamily: 'PatrickHand-Regular',
-        color: '#333',
+        color: '#53544D',
         textAlign: 'left',
         alignSelf: 'flex-start',
         marginBottom: 20,
@@ -1107,7 +1107,7 @@ const styles = StyleSheet.create({
     },
     mockupSmsText: {
         fontFamily: 'PatrickHand-Regular',
-        color: '#333',
+        color: '#53544D',
         fontSize: 15,
         lineHeight: 18,
     },
@@ -1154,7 +1154,7 @@ const styles = StyleSheet.create({
     mockupNotificationBody: {
         fontFamily: 'PatrickHand-Regular',
         fontSize: 14,
-        color: '#333',
+        color: '#53544D',
         lineHeight: 18,
         flex: 1,
         marginRight: 15,

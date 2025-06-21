@@ -491,7 +491,7 @@ const styles = StyleSheet.create({
     contactName: {
         fontSize: 20,
         fontFamily: 'PatrickHand-Regular',
-        color: '#333',
+        color: '#53544D',
         marginTop: -6,
     },
     contactDetail: {

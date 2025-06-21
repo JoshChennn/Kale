@@ -145,10 +145,9 @@ export default function SearchScreen({ navigation }) {
     loadRecentsData();
   }, [recents]);
 
-  const navigateToProfile = async (user) => {
-    await addRecent(user.id);
+  const navigateToProfile = (user) => {
     if (user.id === currentUserId) {
-      navigation.navigate('Profile', { userId: currentUserId });
+      navigation.navigate('ProfileStack', { screen: 'Profile', params: { userId: currentUserId } });
     } else {
       navigation.navigate('ProfileModal', { userId: user.id });
     }
@@ -321,7 +320,7 @@ const styles = StyleSheet.create({
   name: {
     fontSize: 20,
     fontFamily: 'PatrickHand-Regular',
-    color: '#333',
+    color: '#53544D',
     marginTop: -6,
   },
   followingIcon: {

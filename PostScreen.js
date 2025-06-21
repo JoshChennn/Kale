@@ -198,6 +198,28 @@ export default function PostScreen({ route, navigation }) {
     setNewComment('');
   };
 
+  const handleClearPost = () => {
+    Alert.alert(
+      "Clear Content",
+      "Are you sure you want to clear your post caption and photo?",
+      [
+        {
+          text: "Cancel",
+          style: "cancel"
+        },
+        {
+          text: "Clear",
+          onPress: () => {
+            setCaption('');
+            setSelectedPhotos([]);
+          },
+          style: 'destructive'
+        }
+      ],
+      { cancelable: true }
+    );
+  };
+
   const renderComment = ({ item }) => (
     <View style={styles.commentItem}>
       <Text style={styles.commentAuthor}>{item.author}:</Text>
@@ -245,7 +267,6 @@ export default function PostScreen({ route, navigation }) {
                             style={styles.textOnlyInput}
                             multiline
                             editable={!isUploading}
-                            autoFocus={true}
                         />
                     </View>
                 ) : (
@@ -354,13 +375,19 @@ export default function PostScreen({ route, navigation }) {
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.header}>
         <Pressable onPress={() => navigation.goBack()} style={styles.backButton}>
-          <MaterialIcons name="arrow-back" size={24} color="#53544D" />
+          <MaterialIcons name="chevron-left" size={28} color="#53544D" />
         </Pressable>
         <Text style={styles.headerTitle}>
           {mode === 'create' ? 'Create Post' : post?.userName || 'Post'}
         </Text>
-        {mode === 'view' && (
+        {mode === 'create' && (caption.trim().length > 0 || selectedPhotos.length > 0) ? (
+          <Pressable onPress={handleClearPost} style={styles.clearButton}>
+            <MaterialIcons name="close" size={24} color="#53544D" />
+          </Pressable>
+        ) : mode === 'view' ? (
           <Text style={styles.postDate}>{post?.date}</Text>
+        ) : (
+          <View style={styles.clearButton} /> // Placeholder to keep title centered
         )}
       </View>
 
@@ -391,8 +418,19 @@ const styles = StyleSheet.create({
     zIndex: 2,
     padding: 4,
   },
+  clearButton: {
+    position: 'absolute',
+    right: 20,
+    zIndex: 2,
+    padding: 4,
+    // ensure it has a size to not mess up layout
+    width: 28 + 8, // icon size + padding
+    height: 28 + 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   headerTitle: {
-    fontSize: 24,
+    fontSize: 22,
     color: '#53544D',
     fontFamily: 'PatrickHand-Regular',
     flex: 1,
@@ -464,7 +502,7 @@ const styles = StyleSheet.create({
   captionInput: {
     fontFamily: 'PatrickHand-Regular',
     fontSize: 16,
-    color: '#333',
+    color: '#53544D',
     lineHeight: 22,
     padding: 0, // Remove default padding
   },

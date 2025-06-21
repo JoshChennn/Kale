@@ -327,9 +327,14 @@ const CommentsBottomSheet = ({ isVisible, onClose, post, navigation, closeCommen
   };
 
   const handleProfilePress = (userId) => {
+    const currentUserId = auth.currentUser?.uid;
     closeCommentsSheet();
     setTimeout(() => {
-      navigation.navigate('ProfileModal', { userId });
+      if (userId === currentUserId) {
+        navigation.navigate('ProfileStack', { screen: 'Profile', params: { userId: currentUserId } });
+      } else {
+        navigation.navigate('ProfileModal', { userId });
+      }
     }, 150);
   };
 
@@ -571,7 +576,7 @@ const styles = StyleSheet.create({
   sheetTitle: {
     fontSize: 20,
     fontFamily: 'PatrickHand-Regular',
-    color: '#333',
+    color: '#53544D',
   },
   commentItem: {
     flexDirection: 'row',
@@ -602,7 +607,7 @@ const styles = StyleSheet.create({
   commentUsername: {
     fontFamily: 'PatrickHand-Regular',
     fontSize: 18,
-    color: '#333',
+    color: '#53544D',
     marginRight: 8,
     marginTop: -5,
   },
@@ -615,7 +620,7 @@ const styles = StyleSheet.create({
   commentText: {
     fontFamily: 'PatrickHand-Regular',
     fontSize: 15,
-    color: '#333',
+    color: '#53544D',
     lineHeight: 20,
     marginTop: 1,
   },

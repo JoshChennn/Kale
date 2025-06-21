@@ -266,11 +266,15 @@ export default function ProfileModal({ navigation, route }) {
       <Animated.View style={[styles.popdownContainer, { transform: [{ translateY: popdownAnim }] }]}>
         <Text style={styles.popdownText}>{popdownMessage}</Text>
       </Animated.View>
-      <View style={{ flex: 1 }}>
-        <Pressable style={styles.backButton} onPress={() => navigation.goBack()}>
-          <MaterialIcons name="arrow-back" size={24} color="#b9b9b9" />
-          <Text style={styles.backButtonText}>Back</Text>
+      <View style={styles.header}>
+        <Pressable onPress={() => navigation.goBack()} style={styles.backButton}>
+          <MaterialIcons name="chevron-left" size={28} color="#53544D" />
         </Pressable>
+        <Text style={styles.headerTitle}>
+          {user?.username ? `@${user.username}` : 'Profile'}
+        </Text>
+      </View>
+      <View style={{ flex: 1 }}>
         <ScrollView
           contentContainerStyle={{ paddingBottom: 100 }}
           showsVerticalScrollIndicator={false}
@@ -347,13 +351,33 @@ export default function ProfileModal({ navigation, route }) {
 }
 
 const styles = StyleSheet.create({
-  backButton: {
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
+    paddingVertical: 12,
     paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 10,
-    zIndex: 1,
+    backgroundColor: '#FFFFFF',
+    position: 'relative',
+  },
+  backButton: {
+    position: 'absolute',
+    left: 20,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    zIndex: 2,
+    padding: 4,
+  },
+  headerTitle: {
+    fontSize: 22,
+    color: '#53544D',
+    fontFamily: 'PatrickHand-Regular',
+    flex: 1,
+    textAlign: 'center',
+  },
+  headerRightPlaceholder: {
+    width: 36,
+    height: 36,
   },
   backButtonText: {
     fontSize: 18,

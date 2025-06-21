@@ -57,6 +57,15 @@ const getTimeAgo = (timestamp) => {
   return `${Math.floor(seconds / 604800)}w`;
 };
 
+const handleProfilePress = (userId, navigation) => {
+  const currentUserId = auth.currentUser?.uid;
+  if (userId === currentUserId) {
+    navigation.navigate('ProfileStack', { screen: 'Profile', params: { userId: currentUserId } });
+  } else {
+    navigation.navigate('ProfileModal', { userId });
+  }
+};
+
 export default function FeedScreen({ navigation }) {
   const [posts, setPosts] = useState([]);
   const [stories, setStories] = useState([]);
@@ -920,10 +929,12 @@ export default function FeedScreen({ navigation }) {
                 <Pressable
                   style={styles.postHeaderLeft}
                   onPress={() => {
-                    if (post.user.id === currentUser.uid) {
-                      navigation.navigate('Profile', { userId: currentUser.uid });
+                    const postUserId = post.user.id;
+                    const currentUserId = currentUser.uid;
+                    if (postUserId === currentUserId) {
+                      navigation.navigate('ProfileStack', { screen: 'Profile', params: { userId: currentUserId }});
                     } else {
-                      navigation.navigate('ProfileModal', { userId: post.user.id });
+                      navigation.navigate('ProfileModal', { userId: postUserId });
                     }
                   }}
                 >
@@ -943,7 +954,7 @@ export default function FeedScreen({ navigation }) {
                     style={styles.threeDotsButton}
                     onPress={() => showPostActions(post.id)}
                   >
-                    <Ionicons name="ellipsis-horizontal" size={18} color="#333" />
+                    <Ionicons name="ellipsis-horizontal" size={18} color="#53544D" />
                   </Pressable>
                 )}
               </View>
@@ -978,7 +989,7 @@ export default function FeedScreen({ navigation }) {
                   <Ionicons 
                     name={post.likedByCurrentUser ? "heart" : "heart-outline"} 
                     size={28} 
-                    color={post.likedByCurrentUser ? "#8BA637" : "#333"}
+                    color={post.likedByCurrentUser ? "#8BA637" : "#53544D"}
                   />
                 </Animated.View>
               </Pressable>
@@ -986,7 +997,7 @@ export default function FeedScreen({ navigation }) {
                 style={styles.actionButton}
                 onPress={() => openCommentsSheet(post)}
               >
-                <Ionicons name="chatbubble-outline" size={28} color="#333" />
+                <Ionicons name="chatbubble-outline" size={28} color="#53544D" />
               </Pressable>
             </View>
             <Pressable
@@ -1010,10 +1021,12 @@ export default function FeedScreen({ navigation }) {
             <Pressable
               style={styles.postHeaderLeft}
               onPress={() => {
-                if (post.user.id === currentUser.uid) {
-                  navigation.navigate('Profile', { userId: currentUser.uid });
+                const postUserId = post.user.id;
+                const currentUserId = currentUser.uid;
+                if (postUserId === currentUserId) {
+                  navigation.navigate('ProfileStack', { screen: 'Profile', params: { userId: currentUserId }});
                 } else {
-                  navigation.navigate('ProfileModal', { userId: post.user.id });
+                  navigation.navigate('ProfileModal', { userId: postUserId });
                 }
               }}
             >
@@ -1033,7 +1046,7 @@ export default function FeedScreen({ navigation }) {
                 style={styles.threeDotsButton}
                 onPress={() => showPostActions(post.id)}
               >
-                <Ionicons name="ellipsis-horizontal" size={18} color="#333" />
+                <Ionicons name="ellipsis-horizontal" size={18} color="#53544D" />
               </Pressable>
             )}
           </View>
@@ -1069,7 +1082,7 @@ export default function FeedScreen({ navigation }) {
                 <Ionicons 
                   name={post.likedByCurrentUser ? "heart" : "heart-outline"} 
                   size={28} 
-                  color={post.likedByCurrentUser ? "#8BA637" : "#333"}
+                  color={post.likedByCurrentUser ? "#8BA637" : "#53544D"}
                 />
               </Animated.View>
             </Pressable>
@@ -1077,7 +1090,7 @@ export default function FeedScreen({ navigation }) {
               style={styles.actionButton}
               onPress={() => openCommentsSheet(post)}
             >
-              <Ionicons name="chatbubble-outline" size={28} color="#333" />
+              <Ionicons name="chatbubble-outline" size={28} color="#53544D" />
             </Pressable>
           </View>
           {post.caption && (
@@ -1626,7 +1639,7 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   requestUsername: {
-    color: '#333',
+    color: '#53544D',
   },
   requestTime: {
     color: '#b9b9b9',
@@ -1769,7 +1782,7 @@ const styles = StyleSheet.create({
   likesText: {
     fontFamily: 'PatrickHand-Regular',
     fontSize: 16,
-    color: '#333',
+    color: '#53544D',
     fontWeight: 'bold',
     paddingHorizontal: 20,
     paddingBottom: 4,
@@ -1782,7 +1795,7 @@ const styles = StyleSheet.create({
   captionText: {
     fontFamily: 'PatrickHand-Regular',
     fontSize: 16,
-    color: '#333',
+    color: '#53544D',
     lineHeight: 22,
   },
   commentsBtn: {

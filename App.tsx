@@ -47,6 +47,7 @@ import CreateProfilePhotoScreen from './CreateProfilePhotoScreen';
 const Tab = createBottomTabNavigator();
 const FeedStack = createStackNavigator();
 const SearchStack = createStackNavigator();
+const ProfileStack = createStackNavigator();
 const RootStack = createStackNavigator();
 const AuthStack = createStackNavigator<AuthStackParamList>();
 
@@ -107,6 +108,24 @@ function SearchStackScreen() {
   );
 }
 
+function ProfileStackScreen() {
+  return (
+    <ProfileStack.Navigator
+      screenOptions={{
+        headerShown: false,
+        gestureEnabled: true,
+        gestureResponseDistance: 500,
+        cardStyleInterpolator: CardStyleInterpolators.forHorizontalIOS,
+      }}
+    >
+      <ProfileStack.Screen name="Profile" component={ProfileScreen} />
+      <ProfileStack.Screen name="UserPostsFeed" component={UserPostsFeed} />
+      <ProfileStack.Screen name="PostDetail" component={PostScreen} />
+      <ProfileStack.Screen name="ProfileModal" component={ProfileModal} />
+    </ProfileStack.Navigator>
+  );
+}
+
 function MainTabs({ currentUser }: { currentUser: FirebaseUser }) {
   return (
     <Tab.Navigator
@@ -145,7 +164,7 @@ function MainTabs({ currentUser }: { currentUser: FirebaseUser }) {
             return <IconComponent width={24} height={24} />;
           }
           
-          if (route.name === 'Profile') {
+          if (route.name === 'ProfileStack') {
             // Show profile photo as icon
             return (
               <View
@@ -197,11 +216,27 @@ function MainTabs({ currentUser }: { currentUser: FirebaseUser }) {
         component={PostScreen}
         options={{ title: 'Add Post' }}
       />
-      <Tab.Screen
-        name="Profile"
-        component={ProfileScreen}
-        initialParams={{ userId: currentUser.uid }}
-      />
+      <Tab.Screen name="ProfileStack" options={{ title: 'Profile' }}>
+        {() => (
+          <ProfileStack.Navigator
+            screenOptions={{
+              headerShown: false,
+              gestureEnabled: true,
+              gestureResponseDistance: 500,
+              cardStyleInterpolator: CardStyleInterpolators.forHorizontalIOS,
+            }}
+          >
+            <ProfileStack.Screen
+              name="Profile"
+              component={ProfileScreen}
+              initialParams={{ userId: currentUser.uid }}
+            />
+            <ProfileStack.Screen name="UserPostsFeed" component={UserPostsFeed} />
+            <ProfileStack.Screen name="PostDetail" component={PostScreen} />
+            <ProfileStack.Screen name="ProfileModal" component={ProfileModal} />
+          </ProfileStack.Navigator>
+        )}
+      </Tab.Screen>
     </Tab.Navigator>
   );
 }
@@ -378,11 +413,6 @@ export default function App() {
             name="EditProfile"
             component={EditProfileScreen}
             options={{ presentation: 'modal', headerShown: false }}
-          />
-          <RootStack.Screen
-            name="UserPostsFeed"
-            component={UserPostsFeed}
-            options={{ gestureEnabled: true, gestureResponseDistance: 500 }}
           />
         </RootStack.Navigator>
       )}

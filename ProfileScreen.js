@@ -164,7 +164,11 @@ export default function ProfileScreen({ navigation, route }) {
   }
 
   if (!user) {
-    return <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><Text>User not found</Text></View>;
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><Text>User not found</Text></View>
+      </SafeAreaView>
+    );
   }
 
   // Only show posts with a non-empty imageUri in the grid list
@@ -199,92 +203,98 @@ export default function ProfileScreen({ navigation, route }) {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
-      <View style={{ flex: 1 }}>
-        <ScrollView
-          contentContainerStyle={{ paddingBottom: 100 }}
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={styles.profileHeaderContainer}>
-            <Image
-              source={user?.photoURL ? { uri: user.photoURL } : defaultProfilePhoto}
-              style={styles.profileImage}
-            />
-            <View style={styles.profileInfoContainer}>
-              <View>
-                <View style={styles.nameRow}>
-                  <Text style={styles.name}>{user?.displayName || 'User'}</Text>
-                  {user?.verified && (
-                    <MaterialIcons name="verified" size={20} color="#8BA637" style={{ marginLeft: 4 }} />
-                  )}
-                </View>
-                <Text style={styles.handle}>
-                  {user?.username ? `@${user.username}` : `@${(user?.displayName || 'user').toLowerCase().replace(/\s/g, '')}`}
-                </Text>
-              </View>
-
-              <View style={styles.statsContainer}>
-                <View style={styles.statItem}>
-                  <Text style={styles.statNumber}>{formatCount(followingCount)}</Text>
-                  <Text style={styles.statLabel}>Following</Text>
-                </View>
-                <View style={styles.statItem}>
-                  <Text style={styles.statNumber}>{formatCount(followerCount)}</Text>
-                  <Text style={styles.statLabel}>Followers</Text>
-                </View>
-              </View>
-            </View>
-          </View>
-
-          <Text style={styles.bio}>
-            {user.bio}
-          </Text>
-
-          <View style={styles.buttonWrapper}>
-            {isCurrentUser ? (
-              <>
-                <Pressable style={styles.editProfileButton} onPress={() => navigation.navigate('EditProfile')}>
-                  <Text style={styles.editProfileText}>Edit profile</Text>
-                </Pressable>
-                <Pressable 
-                  style={styles.addFriendsProfileButton} 
-                  onPress={() => navigation.navigate('AddMoreFriends')}
-                >
-                  <Text style={styles.addFriendsProfileButtonText}>Find friends</Text>
-                </Pressable>
-              </>
-            ) : (
-              renderFollowButton()
-            )}
-          </View>
-
-          {isCurrentUser || isFollowing ? (
-            <View style={styles.gridList}>
-              {mappedPosts.map((item, index) => (
-                <Pressable
-                  key={item.id}
-                  style={styles.postCard}
-                  onPress={() => navigation.navigate('UserPostsFeed', { userId: userId, initialPost: item })}
-                >
-                  <Image
-                    source={{ uri: item.imageUri }}
-                    style={[
-                      styles.gridImg,
-                      ((index + 1) % 3 === 0) && { marginRight: 0 }
-                    ]}
-                  />
-                </Pressable>
-              ))}
-            </View>
-          ) : (
-            <View style={styles.lockContainer}>
-              <MaterialIcons name="lock" size={72} color="#b9b9b9" />
-              <Text style={styles.lockText}>This account is private.</Text>
-              <Text style={styles.lockSubText}>Follow them to see their posts.</Text>
-            </View>
-          )}
-        </ScrollView>
+    <SafeAreaView style={styles.safe}>
+      <View style={styles.header}>
+        <Pressable onPress={() => navigation.goBack()} style={styles.backButton}>
+          <MaterialIcons name="chevron-left" size={28} color="#53544D" />
+        </Pressable>
+        <Text style={styles.headerTitle}>
+          {user?.username ? `@${user.username}` : 'Profile'}
+        </Text>
       </View>
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: 100 }}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.profileHeaderContainer}>
+          <Image
+            source={user?.photoURL ? { uri: user.photoURL } : defaultProfilePhoto}
+            style={styles.profileImage}
+          />
+          <View style={styles.profileInfoContainer}>
+            <View>
+              <View style={styles.nameRow}>
+                <Text style={styles.name}>{user?.displayName || 'User'}</Text>
+                {user?.verified && (
+                  <MaterialIcons name="verified" size={20} color="#8BA637" style={{ marginLeft: 4 }} />
+                )}
+              </View>
+              <Text style={styles.handle}>
+                {user?.username ? `@${user.username}` : `@${(user?.displayName || 'user').toLowerCase().replace(/\s/g, '')}`}
+              </Text>
+            </View>
+
+            <View style={styles.statsContainer}>
+              <View style={styles.statItem}>
+                <Text style={styles.statNumber}>{formatCount(followingCount)}</Text>
+                <Text style={styles.statLabel}>Following</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Text style={styles.statNumber}>{formatCount(followerCount)}</Text>
+                <Text style={styles.statLabel}>Followers</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        <Text style={styles.bio}>
+          {user.bio}
+        </Text>
+
+        <View style={styles.buttonWrapper}>
+          {isCurrentUser ? (
+            <>
+              <Pressable style={styles.editProfileButton} onPress={() => navigation.navigate('EditProfile')}>
+                <Text style={styles.editProfileText}>Edit profile</Text>
+              </Pressable>
+              <Pressable
+                style={styles.addFriendsProfileButton}
+                onPress={() => navigation.navigate('AddMoreFriends')}
+              >
+                <Text style={styles.addFriendsProfileButtonText}>Find friends</Text>
+              </Pressable>
+            </>
+          ) : (
+            renderFollowButton()
+          )}
+        </View>
+
+        {isCurrentUser || isFollowing ? (
+          <View style={styles.gridList}>
+            {mappedPosts.map((item, index) => (
+              <Pressable
+                key={item.id}
+                style={styles.postCard}
+                onPress={() => navigation.navigate('UserPostsFeed', { userId: userId, initialPost: item })}
+              >
+                <Image
+                  source={{ uri: item.imageUri }}
+                  style={[
+                    styles.gridImg,
+                    ((index + 1) % 3 === 0) && { marginRight: 0 }
+                  ]}
+                />
+              </Pressable>
+            ))}
+          </View>
+        ) : (
+          <View style={styles.lockContainer}>
+            <MaterialIcons name="lock" size={72} color="#b9b9b9" />
+            <Text style={styles.lockText}>This account is private.</Text>
+            <Text style={styles.lockSubText}>Follow them to see their posts.</Text>
+          </View>
+        )}
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -294,6 +304,34 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FFFFFF',
   },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    backgroundColor: '#FFFFFF',
+    position: 'relative',
+  },
+  backButton: {
+    position: 'absolute',
+    left: 20,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    zIndex: 2,
+    padding: 4,
+  },
+  headerTitle: {
+    fontSize: 22,
+    color: '#53544D',
+    fontFamily: 'PatrickHand-Regular',
+    flex: 1,
+    textAlign: 'center',
+  },
+  headerRightPlaceholder: {
+    width: 36,
+    height: 36,
+  },
   container: {
     paddingBottom: 32,
     backgroundColor: '#FFFFFF',
@@ -302,7 +340,7 @@ const styles = StyleSheet.create({
   profileHeaderContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 69,
+    marginTop: 20,
     paddingHorizontal: 35,
     marginBottom: 12,
   },

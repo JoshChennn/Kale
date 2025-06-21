@@ -614,7 +614,6 @@ export default function UserPostsFeed({ navigation, route }) {
   const currentUserId = auth.currentUser?.uid;
   const [posts, setPosts] = useState([]);
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
   const [likedPosts, setLikedPosts] = useState(new Set());
   const [refreshing, setRefreshing] = useState(false);
   const lastTap = useRef(0);
@@ -684,15 +683,13 @@ export default function UserPostsFeed({ navigation, route }) {
   useEffect(() => {
     if (refreshing) {
       const minRefreshTime = setTimeout(() => {
-        // Only stop refreshing if data has been loaded (loading is false)
-        if (!loading) {
-          setRefreshing(false);
-        }
+        // Stop refreshing after a minimum time
+        setRefreshing(false);
       }, 800); // Minimum 800ms for refresh to feel natural
       
       return () => clearTimeout(minRefreshTime);
     }
-  }, [refreshing, loading]);
+  }, [refreshing]);
 
   // Ensure refreshing doesn't get stuck
   useEffect(() => {
@@ -716,12 +713,10 @@ export default function UserPostsFeed({ navigation, route }) {
           setUser({ id: docSnap.id, ...docSnap.data() });
         } else {
           setUser(null);
-          setLoading(false);
         }
       }, 
       (error) => {
         console.error("Error fetching user:", error);
-        setLoading(false);
         Alert.alert(
           "Connection Error",
           "There was an issue loading the user profile. Please try again.",
@@ -773,7 +768,6 @@ export default function UserPostsFeed({ navigation, route }) {
             [{ text: "OK" }]
           );
         } finally {
-          setLoading(false);
           
           // Stop refreshing if we're currently refreshing
           if (refreshing) {
@@ -783,7 +777,6 @@ export default function UserPostsFeed({ navigation, route }) {
       }, 
       (error) => {
         console.error("Error fetching posts:", error);
-        setLoading(false);
         Alert.alert(
           "Connection Error",
           "There was an issue loading posts. Please try again.",
@@ -800,14 +793,14 @@ export default function UserPostsFeed({ navigation, route }) {
 
   // Scroll to initial post when posts are loaded
   useEffect(() => {
-    if (!loading && initialPost && posts.length > 0 && !hasScrolledToInitialPost.current) {
+    if (initialPost && posts.length > 0 && !hasScrolledToInitialPost.current) {
       // Use setTimeout to ensure the layout is complete
       setTimeout(() => {
         scrollToPost(initialPost.id);
         hasScrolledToInitialPost.current = true;
       }, 100);
     }
-  }, [loading, posts, initialPost]);
+  }, [posts, initialPost]);
 
   const handleLikeToggle = async (postId, currentlyLiked) => {
     if (!currentUserId) return;
@@ -996,26 +989,11 @@ export default function UserPostsFeed({ navigation, route }) {
     );
   };
 
-  if (loading && !refreshing) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
-          <Pressable style={styles.backButton} onPress={() => navigation.goBack()}>
-            <MaterialIcons name="arrow-back" size={24} color="#b9b9b9" />
-            <Text style={styles.backButtonText}>Back</Text>
-          </Pressable>
-        </View>
-        <ActivityIndicator size="large" color="#8BA637" style={{ flex: 1 }} />
-      </SafeAreaView>
-    );
-  }
-
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Pressable style={styles.backButton} onPress={() => navigation.goBack()}>
-          <MaterialIcons name="arrow-back" size={24} color="#b9b9b9" />
-          <Text style={styles.backButtonText}>Back</Text>
+          <MaterialIcons name="chevron-left" size={28} color="#53544D" />
         </Pressable>
         <Text style={styles.headerTitle}>All Posts</Text>
       </View>
@@ -1070,7 +1048,7 @@ export default function UserPostsFeed({ navigation, route }) {
                 </View>
                 {isOwnPost && (
                   <Pressable style={styles.threeDotsButton} onPress={() => showPostActions(post.id)}>
-                    <Ionicons name="ellipsis-horizontal" size={18} color="#333" />
+                    <Ionicons name="ellipsis-horizontal" size={18} color="#53544D" />
                   </Pressable>
                 )}
               </View>
@@ -1100,12 +1078,12 @@ export default function UserPostsFeed({ navigation, route }) {
                     <Ionicons 
                       name={post.likedByCurrentUser ? "heart" : "heart-outline"} 
                       size={28} 
-                      color={post.likedByCurrentUser ? "#8BA637" : "#333"}
+                      color={post.likedByCurrentUser ? "#8BA637" : "#53544D"}
                     />
                   </Animated.View>
                 </Pressable>
                 <Pressable style={styles.actionButton} onPress={() => openCommentsSheet(post)} >
-                  <Ionicons name="chatbubble-outline" size={28} color="#333" />
+                  <Ionicons name="chatbubble-outline" size={28} color="#53544D" />
                 </Pressable>
               </View>
               {post.caption && (
@@ -1144,7 +1122,7 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: 22,
     fontFamily: 'PatrickHand-Regular',
     color: '#000000',
     textAlign: 'center',
@@ -1159,9 +1137,9 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   backButtonText: {
-    fontSize: 18,
+    fontSize: 28,
     fontFamily: 'PatrickHand-Regular',
-    color: '#b9b9b9',
+    color: '#53544D',
   },
   scrollContent: {
     paddingBottom: 100,
@@ -1234,7 +1212,7 @@ const styles = StyleSheet.create({
   captionText: {
     fontFamily: 'PatrickHand-Regular',
     fontSize: 16,
-    color: '#333',
+    color: '#53544D',
     lineHeight: 22,
   },
   commentsBtn: {
@@ -1293,7 +1271,7 @@ const styles = StyleSheet.create({
   sheetTitle: {
     fontSize: 20,
     fontFamily: 'PatrickHand-Regular',
-    color: '#333',
+    color: '#53544D',
   },
   commentItem: {
     flexDirection: 'row',
@@ -1324,7 +1302,7 @@ const styles = StyleSheet.create({
   commentUsername: {
     fontFamily: 'PatrickHand-Regular',
     fontSize: 18,
-    color: '#333',
+    color: '#53544D',
     marginRight: 8,
     marginTop: -5,
   },
@@ -1337,7 +1315,7 @@ const styles = StyleSheet.create({
   commentText: {
     fontFamily: 'PatrickHand-Regular',
     fontSize: 15,
-    color: '#333',
+    color: '#53544D',
     lineHeight: 20,
     marginTop: 1,
   },
