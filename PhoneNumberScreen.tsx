@@ -152,6 +152,36 @@ export default function PhoneNumberScreen({ navigation }: Props) {
             </View>
           </View>
 
+          {/* Disclaimer with links */}
+          <View style={{ alignItems: 'center', marginBottom: 10 }}>
+            <Text style={styles.disclaimerText}>
+              By entering your phone number you agree to our{' '}
+              <Text style={styles.linkText} onPress={() => {
+                // Open terms link
+                if (Platform.OS === 'web') {
+                  window.open('https://usekale.com/terms.html', '_blank');
+                } else {
+                  // @ts-ignore
+                  require('react-native').Linking.openURL('https://usekale.com/terms.html');
+                }
+              }}>
+                terms
+              </Text>
+              {' '}and{' '}
+              <Text style={styles.linkText} onPress={() => {
+                if (Platform.OS === 'web') {
+                  window.open('https://usekale.com/privacy.html', '_blank');
+                } else {
+                  // @ts-ignore
+                  require('react-native').Linking.openURL('https://usekale.com/privacy.html');
+                }
+              }}>
+                privacy policy
+              </Text>
+              .
+            </Text>
+          </View>
+
           <View style={styles.bottomContainer}>
             {loading ? (
               <ActivityIndicator
@@ -258,5 +288,17 @@ const styles = StyleSheet.create({
     color: 'yellow',
     textAlign: 'center',
     fontSize: 14,
+  },
+  disclaimerText: {
+    fontSize: 16,
+    color: '#F2F2F2B0',
+    textAlign: 'center',
+    fontFamily: 'PatrickHand-Regular',
+    marginTop: 10,
+    marginHorizontal: 50,
+  },
+  linkText: {
+    color: '#F2F2F2',
+    textDecorationLine: 'underline',
   },
 });

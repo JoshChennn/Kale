@@ -83,6 +83,11 @@ export default function FeedScreen({ navigation }) {
   const heartAnims = useRef(new Map()).current;
   const likeButtonAnims = useRef(new Map()).current;
 
+  // Add animated values for cleared text animation
+  const clearedTextOpacity = useRef(new Animated.Value(0)).current;
+  const clearedTextScale = useRef(new Animated.Value(0.8)).current;
+  const clearedTextTranslateY = useRef(new Animated.Value(20)).current;
+
   // Add state for comments bottom sheet
   const [isCommentsSheetVisible, setCommentsSheetVisible] = useState(false);
   const [selectedPostForComments, setSelectedPostForComments] = useState(null);
@@ -289,8 +294,32 @@ export default function FeedScreen({ navigation }) {
         delay: 100, // Small delay for a cleaner transition
         useNativeDriver: true,
       }).start();
+      
+      // If the feed is already cleared, animate the text immediately
+      Animated.parallel([
+        Animated.timing(clearedTextOpacity, {
+          toValue: 1,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+        Animated.spring(clearedTextScale, {
+          toValue: 1,
+          friction: 8,
+          tension: 100,
+          useNativeDriver: true,
+        }),
+        Animated.timing(clearedTextTranslateY, {
+          toValue: 0,
+          duration: 600,
+          useNativeDriver: true,
+        })
+      ]).start();
     } else {
       clearedOpacity.setValue(0);
+      // Reset cleared text animations when filter changes to ensure fresh animation
+      clearedTextOpacity.setValue(0);
+      clearedTextScale.setValue(0.8);
+      clearedTextTranslateY.setValue(20);
     }
   }, [clearedFeeds, selectedFilter]);
 
@@ -454,37 +483,99 @@ export default function FeedScreen({ navigation }) {
     
     holdTimeout.current = null;
     
-    // Check if the ref is attached and there are posts
-    if (listRef.current && posts.length > 0) {
-      // 1. Smoothly scroll to the top of the list.
-      listRef.current.scrollToLocation({
-        animated: true,
-        sectionIndex: 0,
-        itemIndex: 0,
-        viewOffset: 100, // Offset to account for header
-      });
-
-      // 2. Wait for the scroll to finish before starting the fade-out.
-      setTimeout(() => {
-        // 3. Start the exit animation for posts and the footer.
-        Animated.timing(clearAnimation, {
-          toValue: 1,
-          duration: 500, // Duration of the collapse animation
-          useNativeDriver: true,
-        }).start(({ finished }) => {
-          // 4. After the animation completes, update the state.
-          if (finished) {
-            setPosts([]);
-            // --- MODIFICATION: Set cleared state for the CURRENT filter only ---
-            setClearedFeeds(prev => ({
-              ...prev,
-              [selectedFilter]: true,
-            }));
-            scaleAnim.setValue(1); // Reset button scale
-            outlineOpacityAnim.setValue(0); // Reset outline opacity
-          }
+    // Reset text animation values to ensure fresh animation
+    clearedTextOpacity.setValue(0);
+    clearedTextScale.setValue(0.8);
+    clearedTextTranslateY.setValue(20);
+    
+    // Check if the ref is attached (allow clearing even if no posts)
+    if (listRef.current) {
+      // If there are posts, scroll to top first, then animate
+      if (posts.length > 0) {
+        // 1. Smoothly scroll to the top of the list.
+        listRef.current.scrollToLocation({
+          animated: true,
+          sectionIndex: 0,
+          itemIndex: 0,
+          viewOffset: 100, // Offset to account for header
         });
-      }, 400); // This delay should be enough for the scroll animation.
+
+        // 2. Wait for the scroll to finish before starting the fade-out.
+        setTimeout(() => {
+          // 3. Start the exit animation for posts and the footer.
+          Animated.timing(clearAnimation, {
+            toValue: 1,
+            duration: 500, // Duration of the collapse animation
+            useNativeDriver: true,
+          }).start(({ finished }) => {
+            // 4. After the animation completes, update the state.
+            if (finished) {
+              setPosts([]);
+              // --- MODIFICATION: Set cleared state for the CURRENT filter only ---
+              setClearedFeeds(prev => ({
+                ...prev,
+                [selectedFilter]: true,
+              }));
+              scaleAnim.setValue(1); // Reset button scale
+              outlineOpacityAnim.setValue(0); // Reset outline opacity
+              
+              // 5. Animate the cleared text with a nice sequence
+              Animated.sequence([
+                Animated.delay(200), // Small delay for better timing
+                Animated.parallel([
+                  Animated.timing(clearedTextOpacity, {
+                    toValue: 1,
+                    duration: 800,
+                    useNativeDriver: true,
+                  }),
+                  Animated.spring(clearedTextScale, {
+                    toValue: 1,
+                    friction: 8,
+                    tension: 100,
+                    useNativeDriver: true,
+                  }),
+                  Animated.timing(clearedTextTranslateY, {
+                    toValue: 0,
+                    duration: 800,
+                    useNativeDriver: true,
+                  })
+                ])
+              ]).start();
+            }
+          });
+        }, 400); // This delay should be enough for the scroll animation.
+      } else {
+        // If no posts, just set the cleared state and animate text immediately
+        setClearedFeeds(prev => ({
+          ...prev,
+          [selectedFilter]: true,
+        }));
+        scaleAnim.setValue(1); // Reset button scale
+        outlineOpacityAnim.setValue(0); // Reset outline opacity
+        
+        // Animate the cleared text immediately
+        Animated.sequence([
+          Animated.delay(100), // Small delay for better timing
+          Animated.parallel([
+            Animated.timing(clearedTextOpacity, {
+              toValue: 1,
+              duration: 800,
+              useNativeDriver: true,
+            }),
+            Animated.spring(clearedTextScale, {
+              toValue: 1,
+              friction: 8,
+              tension: 100,
+              useNativeDriver: true,
+            }),
+            Animated.timing(clearedTextTranslateY, {
+              toValue: 0,
+              duration: 800,
+              useNativeDriver: true,
+            })
+          ])
+        ]).start();
+      }
     }
   };
 
@@ -1209,12 +1300,21 @@ export default function FeedScreen({ navigation }) {
           return "Get some sleep. 😴";
         };
 
-        // MODIFICATION: Show the cleared message immediately, not just after animation
+        // MODIFICATION: Use animated values for the cleared text
         return (
-          <View style={[styles.clearedContainer, { opacity: 1 }]}> 
+          <Animated.View style={[
+            styles.clearedContainer, 
+            { 
+              opacity: clearedTextOpacity,
+              transform: [
+                { scale: clearedTextScale },
+                { translateY: clearedTextTranslateY }
+              ]
+            }
+          ]}> 
             <Text style={styles.clearedText}>That's it for today.</Text>
             <Text style={styles.clearedSubText}>{getTimeBasedMessage()}</Text>
-          </View>
+          </Animated.View>
         );
       }
       return null;

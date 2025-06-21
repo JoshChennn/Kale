@@ -13,6 +13,14 @@ import { auth, db } from './firebaseConfig';
 import { User as FirebaseUser } from 'firebase/auth';
 import { onSnapshot, doc } from 'firebase/firestore';
 
+// Import SVG icons
+import FeedActiveIcon from './assets/tab-icons/feed-active.svg';
+import FeedInactiveIcon from './assets/tab-icons/feed-inactive.svg';
+import SearchActiveIcon from './assets/tab-icons/search-active.svg';
+import SearchInactiveIcon from './assets/tab-icons/search-inactive.svg';
+import AddActiveIcon from './assets/tab-icons/add-active.svg';
+import AddInactiveIcon from './assets/tab-icons/add-inactive.svg';
+
 import FeedScreen from './FeedScreen';
 import ProfileScreen from './ProfileScreen';
 import ProfileModal from './ProfileModal.js';
@@ -96,26 +104,36 @@ function MainTabs({ currentUser }: { currentUser: FirebaseUser }) {
         },
         tabBarShowLabel: false,
         tabBarIcon: ({ focused }) => {
-          let iconName: keyof typeof MaterialIcons.glyphMap = 'home';
           let iconSize = 30;
           let iconStyle = {};
-          if (route.name === 'FeedStack')
-            iconName = focused ? 'favorite' : 'favorite-outline';
-          if (route.name === 'Search') iconName = 'search';
-          if (route.name === 'CreatePost') {
-            iconName = 'add';
-            iconSize = 38; // Make plus icon bigger
-            iconStyle = { marginTop: -6, marginLeft: -2 };
+          
+          if (route.name === 'FeedStack') {
+            // Use SVG icons for feed tab
+            const IconComponent = focused ? FeedActiveIcon : FeedInactiveIcon;
+            return <IconComponent width={focused ? 32 : 28} height={focused ? 32 : 28} />;
           }
+          
+          if (route.name === 'Search') {
+            // Use SVG icons for search tab
+            const IconComponent = focused ? SearchActiveIcon : SearchInactiveIcon;
+            return <IconComponent width={30} height={30} />;
+          }
+          
+          if (route.name === 'CreatePost') {
+            // Use SVG icons for add tab
+            const IconComponent = focused ? AddActiveIcon : AddInactiveIcon;
+            return <IconComponent width={24} height={24} />;
+          }
+          
           if (route.name === 'Profile') {
             // Show profile photo as icon
             return (
               <View
                 style={{
-                  width: focused ? 35 : 31,
-                  height: focused ? 35 : 31,
+                  width: focused ? 37 : 31,
+                  height: focused ? 37 : 31,
                   borderRadius: 18,
-                  borderWidth: focused ? 2.5 : 0.5,
+                  borderWidth: focused ? 4 : 0.5,
                   borderColor: focused ? '#8BA637' : '#B9B9B9',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -132,9 +150,10 @@ function MainTabs({ currentUser }: { currentUser: FirebaseUser }) {
             );
           }
 
+          // Fallback to Material Icons (shouldn't reach here)
           return (
             <MaterialIcons
-              name={iconName}
+              name="home"
               size={iconSize}
               color={focused ? '#8BA637' : '#B9B9B9'}
               style={iconStyle}
