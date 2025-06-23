@@ -2,11 +2,17 @@
   "build": {
     "preview": {
       "distribution": "internal",
-      "channel": "preview"
+      "channel": "preview",
+      "ios": {
+        "image": "macos-sonoma-xcode-15.4"
+      }
     },
     "production": {
       "distribution": "store",
-      "channel": "prod"
+      "channel": "prod",
+      "ios": {
+        "image": "macos-sonoma-xcode-15.4"
+      }
     }
   }
 }
