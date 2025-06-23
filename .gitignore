@@ -84,3 +84,7 @@ web-build/
 
 # Local Netlify folder
 .netlify
+
+# Added for Expo managed/prebuild workflow
+/ios
+/android
