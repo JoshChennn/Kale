@@ -13,6 +13,7 @@ import {
   Pressable,
   KeyboardAvoidingView,
 } from 'react-native';
+import { FirebaseRecaptchaVerifierModal } from 'expo-firebase-recaptcha';
 import { firebase } from './firebaseConfig';
 import { StackScreenProps } from '@react-navigation/stack';
 import CountryPicker, {
@@ -50,6 +51,8 @@ const pickerTheme: CountryPickerTheme = {
 };
 
 export default function PhoneNumberScreen({ navigation }: Props) {
+  const recaptchaVerifier = React.useRef<FirebaseRecaptchaVerifierModal>(null);
+
   const [countryCode, setCountryCode] = React.useState<CountryCode>('US');
   const [callingCode, setCallingCode] = React.useState('1');
   const [phoneNumber, setPhoneNumber] = React.useState('');
@@ -72,17 +75,22 @@ export default function PhoneNumberScreen({ navigation }: Props) {
       Alert.alert('Invalid Phone Number', 'Please enter a valid phone number.');
       return;
     }
+    if (!recaptchaVerifier.current) {
+      Alert.alert('Error', 'reCAPTCHA verifier not initialized.');
+      return;
+    }
 
     setLoading(true);
     setMessage('');
 
     try {
-      const confirmationResult = await firebase.auth().signInWithPhoneNumber(
+      const phoneProvider = new firebase.auth.PhoneAuthProvider();
+      const verificationId = await phoneProvider.verifyPhoneNumber(
         fullPhoneNumber,
-        undefined as unknown as firebase.auth.ApplicationVerifier
+        recaptchaVerifier.current
       );
       navigation.navigate('VerifyCode', {
-        verificationId: confirmationResult.verificationId,
+        verificationId,
         phoneNumber: fullPhoneNumber,
       });
     } catch (err: any) {
@@ -101,6 +109,13 @@ export default function PhoneNumberScreen({ navigation }: Props) {
     >
       <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
         <View style={styles.container}>
+          <FirebaseRecaptchaVerifierModal
+            ref={recaptchaVerifier}
+            firebaseConfig={firebase.app().options}
+            title="I'm not a robot (Loading...)"
+            cancelLabel="Close"
+          />
+
           <View style={styles.content}>
             <Text style={styles.title}>KALE</Text>
             <Text style={styles.subtitle}>Hey, what's your number?</Text>
