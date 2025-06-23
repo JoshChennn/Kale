@@ -4,14 +4,14 @@
       "distribution": "internal",
       "channel": "preview",
       "ios": {
-        "image": "macos-sonoma-xcode-15.4"
+        "image": "stable"
       }
     },
     "production": {
       "distribution": "store",
       "channel": "prod",
       "ios": {
-        "image": "macos-sonoma-xcode-15.4"
+        "image": "stable"
       }
     }
   }
