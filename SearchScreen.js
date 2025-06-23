@@ -146,6 +146,7 @@ export default function SearchScreen({ navigation }) {
   }, [recents]);
 
   const navigateToProfile = (user) => {
+    addRecent(user.id);
     if (user.id === currentUserId) {
       navigation.navigate('ProfileStack', { screen: 'Profile', params: { userId: currentUserId } });
     } else {
@@ -279,9 +280,10 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     fontSize: 18,
+    lineHeight: 25,
     fontFamily: 'PatrickHand-Regular',
     color: '#53544D',
-    paddingVertical: 0,
+    marginTop: -5,
     letterSpacing: 0,
   },
   clearSearch: { marginLeft: 8 },

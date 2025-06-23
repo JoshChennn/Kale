@@ -1,8 +1,8 @@
 import * as React from 'react';
-import { View, ActivityIndicator, Alert, Image } from 'react-native';
+import { View, ActivityIndicator, Alert, Image, Animated, TouchableOpacity, GestureResponderEvent } from 'react-native';
 import { useFonts } from 'expo-font';
 import { NavigationContainer } from '@react-navigation/native';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { createBottomTabNavigator, BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
 import {
   createStackNavigator,
   CardStyleInterpolators,
@@ -12,6 +12,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { auth, db } from './firebaseConfig';
 import { User as FirebaseUser } from 'firebase/auth';
 import { onSnapshot, doc } from 'firebase/firestore';
+import * as Haptics from 'expo-haptics';
 
 // Import SVG icons
 import FeedActiveIcon from './assets/tab-icons/feed-active.svg';
@@ -50,6 +51,45 @@ const SearchStack = createStackNavigator();
 const ProfileStack = createStackNavigator();
 const RootStack = createStackNavigator();
 const AuthStack = createStackNavigator<AuthStackParamList>();
+
+const AnimatedTabBarButton = ({ children, onPress }: BottomTabBarButtonProps) => {
+  const scaleValue = React.useRef(new Animated.Value(1)).current;
+
+  const handlePress = (e: GestureResponderEvent) => {
+    // Trigger haptic feedback
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    // Trigger the animation
+    scaleValue.setValue(0.8);
+    Animated.spring(scaleValue, {
+      toValue: 1,
+      friction: 3,
+      tension: 40,
+      useNativeDriver: true,
+    }).start();
+
+    // Call the original onPress event
+    if (onPress) {
+      onPress(e);
+    }
+  };
+
+  const animatedStyle = {
+    transform: [{ scale: scaleValue }],
+  };
+
+  return (
+    <TouchableOpacity
+      onPress={handlePress}
+      activeOpacity={1}
+      style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}
+    >
+      <Animated.View style={[{ justifyContent: 'center', alignItems: 'center' }, animatedStyle]}>
+        {children}
+      </Animated.View>
+    </TouchableOpacity>
+  );
+};
 
 // Define param lists for navigators
 type AuthStackParamList = {
@@ -204,19 +244,34 @@ function MainTabs({ currentUser }: { currentUser: FirebaseUser }) {
       <Tab.Screen
         name="FeedStack"
         component={FeedStackScreen}
-        options={{ title: 'Feed' }}
+        options={{
+          title: 'Feed',
+          tabBarButton: (props) => <AnimatedTabBarButton {...props} />,
+        }}
       />
       <Tab.Screen
         name="SearchStack"
         component={SearchStackScreen}
-        options={{ title: 'Search' }}
+        options={{
+          title: 'Search',
+          tabBarButton: (props) => <AnimatedTabBarButton {...props} />,
+        }}
       />
       <Tab.Screen
         name="CreatePost"
         component={PostScreen}
-        options={{ title: 'Add Post' }}
+        options={{
+          title: 'Add Post',
+          tabBarButton: (props) => <AnimatedTabBarButton {...props} />,
+        }}
       />
-      <Tab.Screen name="ProfileStack" options={{ title: 'Profile' }}>
+      <Tab.Screen
+        name="ProfileStack"
+        options={{
+          title: 'Profile',
+          tabBarButton: (props) => <AnimatedTabBarButton {...props} />,
+        }}
+      >
         {() => (
           <ProfileStack.Navigator
             screenOptions={{

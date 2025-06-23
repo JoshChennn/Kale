@@ -17,6 +17,8 @@ import {
   ActionSheetIOS,
   TouchableOpacity,
   RefreshControl,
+  FlatList,
+  Modal,
 } from 'react-native';
 import { db, auth, functions } from './firebaseConfig';
 import { httpsCallable } from 'firebase/functions';
@@ -112,8 +114,27 @@ export default function FeedScreen({ navigation }) {
   // Add animated value for scroll-to-top button
   const scrollTopAnim = useRef(new Animated.Value(0)).current; // 0: hidden, 1: visible
 
+  const [activeIndexes, setActiveIndexes] = useState({});
+
   // Track if user is near the footer
   const [nearFooter, setNearFooter] = useState(false);
+
+  // --- TUTORIAL STATE ---
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [tutorialStep, setTutorialStep] = useState(0);
+  const [tutorialData, setTutorialData] = useState({
+    step1: { x: 0, y: 0, width: 0, height: 0 },
+    step2: { x: 0, y: 0, width: 0, height: 0 },
+    step3: { x: 0, y: 0, width: 0, height: 0 },
+    step4: { x: 0, y: 0, width: 0, height: 0 },
+  });
+  const tutorialAnim = useRef(new Animated.Value(0)).current;
+  const tutorialOverlayAnim = useRef(new Animated.Value(0)).current;
+
+  // --- TUTORIAL REFS ---
+  const filterButtonRef = useRef(null);
+  const actionButtonsRef = useRef(null);
+  const clearButtonRef = useRef(null);
 
   // Initialize heart animations for posts
   useEffect(() => {
@@ -129,6 +150,176 @@ export default function FeedScreen({ navigation }) {
 
   const handleFollowRequest = httpsCallable(functions, 'handleFollowRequest');
 
+  // --- TUTORIAL: Check if first time user ---
+  useEffect(() => {
+    const checkFirstTimeUser = async () => {
+      try {
+        const hasSeenTutorial = await AsyncStorage.getItem('hasSeenFeedTutorial');
+        if (!hasSeenTutorial) {
+          // Small delay to ensure the screen is fully loaded
+          setTimeout(() => {
+            setShowTutorial(true);
+            startTutorial();
+          }, 1000);
+        }
+      } catch (error) {
+        console.error('Error checking tutorial status:', error);
+      }
+    };
+
+    checkFirstTimeUser();
+  }, []);
+
+  // --- TUTORIAL: Start tutorial animation ---
+  const startTutorial = () => {
+    Animated.parallel([
+      Animated.timing(tutorialOverlayAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.timing(tutorialAnim, {
+        toValue: 1,
+        duration: 400,
+        delay: 200,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  // --- TUTORIAL: Complete tutorial ---
+  const completeTutorial = async () => {
+    try {
+      await AsyncStorage.setItem('hasSeenFeedTutorial', 'true');
+      Animated.parallel([
+        Animated.timing(tutorialOverlayAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(tutorialAnim, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start(() => {
+        setShowTutorial(false);
+        setTutorialStep(0);
+      });
+    } catch (error) {
+      console.error('Error saving tutorial status:', error);
+    }
+  };
+
+  // --- TUTORIAL: Next tutorial step ---
+  const nextTutorialStep = () => {
+    if (tutorialStep < 3) {
+      setTutorialStep(tutorialStep + 1);
+      // Reset animation for next step
+      tutorialAnim.setValue(0);
+      Animated.timing(tutorialAnim, {
+        toValue: 1,
+        duration: 400,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      completeTutorial();
+    }
+  };
+
+  // --- TUTORIAL: Skip tutorial ---
+  const skipTutorial = () => {
+    completeTutorial();
+  };
+
+  // --- TUTORIAL: Reset tutorial (for testing) ---
+  const resetTutorial = async () => {
+    try {
+      await AsyncStorage.removeItem('hasSeenFeedTutorial');
+      setShowTutorial(true);
+      setTutorialStep(0);
+      startTutorial();
+    } catch (error) {
+      console.error('Error resetting tutorial:', error);
+    }
+  };
+
+  // --- TUTORIAL: Get tutorial content ---
+  const getTutorialContent = () => {
+    const steps = [
+      {
+        title: "Welcome to Kale! 🥬",
+        description: "This is your feed where you'll see posts from friends you follow.",
+        position: "center",
+        highlight: null,
+      },
+      {
+        title: "Filter Your Feed",
+        description: "Tap here to switch between 'Close Friends' and 'Everyone' views.",
+        position: "top-right",
+        highlight: "filter",
+      },
+      {
+        title: "Like & Comment",
+        description: "Double-tap posts to like them, or use the buttons below to interact.",
+        position: "center",
+        highlight: "actions",
+      },
+      {
+        title: "Clear Your Feed",
+        description: "When you're done scrolling, hold the button at the bottom to clear your feed and take a break.",
+        position: "bottom",
+        highlight: "clear",
+      },
+    ];
+    return steps[tutorialStep];
+  };
+
+  // --- TUTORIAL: Get highlight position ---
+  const getHighlightPosition = () => {
+    const content = getTutorialContent();
+    if (!content.highlight) return null;
+    
+    switch (content.highlight) {
+      case "filter":
+        return tutorialData.step2;
+      case "actions":
+        return tutorialData.step3;
+      case "clear":
+        return tutorialData.step4;
+      default:
+        return null;
+    }
+  };
+
+  // --- TUTORIAL: Measure tutorial elements ---
+  const measureTutorialElements = () => {
+    // This will be called after the component mounts to measure positions
+    // We'll use refs to measure the actual positions
+    const measureElement = (ref, stepKey) => {
+      if (ref && ref.current) {
+        ref.current.measureInWindow((x, y, width, height) => {
+          setTutorialData(prev => ({
+            ...prev,
+            [stepKey]: { x, y, width, height }
+          }));
+        });
+      }
+    };
+
+    // Measure each tutorial element
+    measureElement(filterButtonRef, 'step2');
+    measureElement(actionButtonsRef, 'step3');
+    measureElement(clearButtonRef, 'step4');
+  };
+
+  // --- TUTORIAL: Layout effect for measuring ---
+  useEffect(() => {
+    if (showTutorial) {
+      // Measure tutorial elements after a short delay
+      setTimeout(measureTutorialElements, 500);
+    }
+  }, [showTutorial]);
 
   // --- DATA FETCHING ---
   useEffect(() => {
@@ -886,6 +1077,20 @@ export default function FeedScreen({ navigation }) {
     const heartAnim = heartAnims.get(post.id);
     const likeButtonAnim = likeButtonAnims.get(post.id);
 
+    const activeIndex = activeIndexes[post.id] || 0;
+    const onViewableItemsChanged = ({ viewableItems }) => {
+      if (viewableItems.length > 0) {
+        const newIndex = viewableItems[0].index;
+        // Only update state if the index has actually changed
+        if (newIndex !== undefined && activeIndex !== newIndex) {
+          setActiveIndexes(prev => ({
+            ...prev,
+            [post.id]: newIndex,
+          }));
+        }
+      }
+    };
+
     const handleDoubleTap = (event) => {
       const now = Date.now();
       const DOUBLE_TAP_DELAY = 300;
@@ -915,8 +1120,10 @@ export default function FeedScreen({ navigation }) {
       }
       lastTap.current = now;
     };
+    
+    const images = post.imageUris || (post.imageUri ? [post.imageUri] : []);
 
-    if (!post.imageUri) {
+    if (images.length === 0) {
       // Text-only post
       return (
         <Animated.View style={{
@@ -980,7 +1187,7 @@ export default function FeedScreen({ navigation }) {
                 <Ionicons name="heart" size={90} color="#8BA637" />
               </Animated.View>
             </Pressable>
-            <View style={styles.actionButtonsContainer}>
+            <View style={styles.actionButtonsContainer} ref={actionButtonsRef}>
               <Pressable 
                 style={styles.actionButton}
                 onPress={() => handleLikeToggle(post.id, post.likedByCurrentUser)}
@@ -1051,9 +1258,28 @@ export default function FeedScreen({ navigation }) {
             )}
           </View>
           <View style={styles.postImageContainer}>
-            <Pressable onPress={handleDoubleTap}>
-              <Image source={{ uri: post.imageUri }} style={styles.postImage} />
-            </Pressable>
+            <FlatList
+              data={images}
+              renderItem={({ item: imageUri }) => (
+                <Pressable onPress={handleDoubleTap}>
+                  <Image source={{ uri: imageUri }} style={styles.postImage} />
+                </Pressable>
+              )}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              keyExtractor={(item, index) => `${post.id}-image-${index}`}
+              style={{ width: screenWidth }}
+              onViewableItemsChanged={onViewableItemsChanged}
+              viewabilityConfig={{ itemVisiblePercentThreshold: 50 }}
+            />
+            {images.length > 1 && (
+              <View style={styles.paginationContainer}>
+                {images.map((_, index) => (
+                  <View key={index} style={[styles.paginationDot, activeIndex === index ? styles.paginationDotActive : {}]} />
+                ))}
+              </View>
+            )}
             <Animated.View
               style={[
                 styles.heartContainer,
@@ -1073,7 +1299,7 @@ export default function FeedScreen({ navigation }) {
               <Ionicons name="heart" size={100} color="#8BA637" />
             </Animated.View>
           </View>
-          <View style={styles.actionButtonsContainer}>
+          <View style={styles.actionButtonsContainer} ref={actionButtonsRef}>
             <Pressable 
               style={styles.actionButton}
               onPress={() => handleLikeToggle(post.id, post.likedByCurrentUser)}
@@ -1305,15 +1531,15 @@ export default function FeedScreen({ navigation }) {
     if (type === 'stories') return null;
     
     if (type === 'posts') {
-      const isFeedEmptyAndNotCleared = posts.length === 0 && !clearedFeeds[selectedFilter];
-      const isCleared = clearedFeeds[selectedFilter];
+      const isFeedEmpty = posts.length === 0;
 
-      // MODIFICATION: If cleared, center the filter toggle and hide the title
-      if (isCleared) {
+      // If the feed is empty for any reason, center the filter toggle.
+      if (isFeedEmpty) {
         return (
           <View style={[styles.sectionHeaderContainer, { justifyContent: 'center' }]}> 
             <View style={styles.filterContainer}>
               <Pressable 
+                ref={filterButtonRef}
                 style={styles.filterButton}
                 onPress={() => {
                   clearAnimation.setValue(0);
@@ -1335,14 +1561,15 @@ export default function FeedScreen({ navigation }) {
         );
       }
 
-      // Don't show the header title if the feed is naturally empty, but keep the container for the filter button.
+      // Default header for when there are posts
       return (
         <View style={styles.sectionHeaderContainer}>
           <Text style={styles.sectionHeader}>
-            {isFeedEmptyAndNotCleared ? '' : title}
+            {title}
           </Text>
           <View style={styles.filterContainer}>
             <Pressable 
+              ref={filterButtonRef}
               style={styles.filterButton}
               onPress={() => {
                 clearAnimation.setValue(0);
@@ -1409,19 +1636,20 @@ export default function FeedScreen({ navigation }) {
   sections.push({ title: 'New Posts', data: posts, type: 'posts' });
 
   const ListFooterComponent = () => {
+    // --- MODIFICATION: If posts are empty for any reason, show the cleared message.
     if (posts.length === 0) {
-      // --- MODIFICATION: Check the cleared state for the specific filter ---
-      if (clearedFeeds[selectedFilter]) {
-        const getTimeBasedMessage = () => {
-          const hour = new Date().getHours();
-          if (hour >= 5 && hour < 9) return "Go drink some water. 💧";
-          if (hour >= 9 && hour < 15) return "Get some work done. 💼";
-          if (hour >= 15 && hour < 19) return "Get some fresh air. 🌳";
-          if (hour >= 19 && hour < 23) return "Go read a book. 📚";
-          return "Get some sleep. 😴";
-        };
+      const isCleared = clearedFeeds[selectedFilter];
+      const getTimeBasedMessage = () => {
+        const hour = new Date().getHours();
+        if (hour >= 5 && hour < 9) return "Go drink some water. 💧";
+        if (hour >= 9 && hour < 15) return "Get some work done. 💼";
+        if (hour >= 15 && hour < 19) return "Get some fresh air. 🌳";
+        if (hour >= 19 && hour < 23) return "Go read a book. 📚";
+        return "Get some sleep. 😴";
+      };
 
-        // MODIFICATION: Use animated values for the cleared text
+      // If the feed was explicitly cleared, use the fade-in animation.
+      if (isCleared) {
         return (
           <Animated.View style={[
             styles.clearedContainer, { backgroundColor: '#FFFFFF' }, 
@@ -1438,7 +1666,14 @@ export default function FeedScreen({ navigation }) {
           </Animated.View>
         );
       }
-      return null;
+      
+      // If the feed is naturally empty, just show the message without animation.
+      return (
+        <View style={[styles.clearedContainer, { backgroundColor: '#FFFFFF' }]}> 
+          <Text style={styles.clearedText}>That's it for today.</Text>
+          <Text style={styles.clearedSubText}>{getTimeBasedMessage()}</Text>
+        </View>
+      );
     }
 
     // Use the width from the stylesheet to calculate the button's radius
@@ -1475,7 +1710,7 @@ export default function FeedScreen({ navigation }) {
               }
             }}
           >
-            <View style={styles.buttonWrapper} pointerEvents="none">
+            <View style={styles.buttonWrapper} pointerEvents="none" ref={clearButtonRef}>
               <Animated.View style={[styles.outlineCircle, { opacity: outlineOpacityAnim }]} />
               <Animated.View style={[styles.clearButton, { transform: [{ scale: scaleAnim }] }]} />
               <Text style={styles.clearButtonEmoji}>🥬</Text>
@@ -1550,6 +1785,77 @@ export default function FeedScreen({ navigation }) {
           closeCommentsSheet={closeCommentsSheet}
         />
       )}
+
+      {/* Tutorial Modal */}
+      <Modal
+        visible={showTutorial}
+        transparent={true}
+        animationType="none"
+        onRequestClose={skipTutorial}
+      >
+        <Animated.View 
+          style={[
+            styles.tutorialOverlay,
+            {
+              opacity: tutorialOverlayAnim,
+            }
+          ]}
+        >
+          <Pressable 
+            style={styles.tutorialOverlayPressable}
+            onPress={nextTutorialStep}
+          >
+            <Animated.View
+              style={[
+                styles.tutorialContent,
+                {
+                  opacity: tutorialAnim,
+                  transform: [
+                    {
+                      scale: tutorialAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.8, 1],
+                      }),
+                    },
+                    {
+                      translateY: tutorialAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [20, 0],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            >
+              <View style={styles.tutorialHeader}>
+                <Text style={styles.tutorialTitle}>{getTutorialContent().title}</Text>
+                <Pressable onPress={skipTutorial} style={styles.tutorialSkipButton}>
+                  <Text style={styles.tutorialSkipText}>Skip</Text>
+                </Pressable>
+              </View>
+              <Text style={styles.tutorialDescription}>{getTutorialContent().description}</Text>
+              <View style={styles.tutorialFooter}>
+                <View style={styles.tutorialDots}>
+                  {[0, 1, 2, 3].map((step) => (
+                    <View
+                      key={step}
+                      style={[
+                        styles.tutorialDot,
+                        tutorialStep === step && styles.tutorialDotActive,
+                      ]}
+                    />
+                  ))}
+                </View>
+                <Pressable onPress={nextTutorialStep} style={styles.tutorialNextButton}>
+                  <Text style={styles.tutorialNextText}>
+                    {tutorialStep === 3 ? 'Get Started' : 'Next'}
+                  </Text>
+                </Pressable>
+              </View>
+            </Animated.View>
+          </Pressable>
+        </Animated.View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1766,7 +2072,7 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   postImage: {
-    width: '100%',
+    width: screenWidth,
     aspectRatio: 1,
     resizeMode: 'cover',
   },
@@ -1934,5 +2240,98 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     marginTop: 0,
     color: '#fff',
+  },
+  paginationContainer: {
+    position: 'absolute',
+    bottom: 15,
+    flexDirection: 'row',
+    alignSelf: 'center',
+  },
+  paginationDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+    marginHorizontal: 4,
+  },
+  paginationDotActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+  },
+  tutorialOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  tutorialOverlayPressable: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  tutorialContent: {
+    backgroundColor: '#FFFFFF',
+    padding: 20,
+    borderRadius: 10,
+    width: '80%',
+    maxHeight: '80%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  tutorialHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+  },
+  tutorialTitle: {
+    fontSize: 24,
+    fontFamily: 'PatrickHand-Regular',
+    color: '#8BA637',
+  },
+  tutorialSkipButton: {
+    padding: 10,
+    borderRadius: 5,
+    backgroundColor: '#8BA637',
+  },
+  tutorialSkipText: {
+    fontSize: 16,
+    fontFamily: 'PatrickHand-Regular',
+    color: '#FFFFFF',
+  },
+  tutorialDescription: {
+    fontSize: 18,
+    fontFamily: 'PatrickHand-Regular',
+    color: '#53544D',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  tutorialFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  tutorialDots: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  tutorialDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#E0E0E0',
+    marginHorizontal: 2,
+  },
+  tutorialDotActive: {
+    backgroundColor: '#8BA637',
+  },
+  tutorialNextButton: {
+    padding: 10,
+    borderRadius: 5,
+    backgroundColor: '#8BA637',
+  },
+  tutorialNextText: {
+    fontSize: 16,
+    fontFamily: 'PatrickHand-Regular',
+    color: '#FFFFFF',
   },
 });

@@ -32,6 +32,7 @@ export default function AddMoreFriendsScreen({ navigation }) {
   const [followingUids, setFollowingUids] = useState(new Set());
   const [requestedUids, setRequestedUids] = useState(new Set());
   const [invitedContactIds, setInvitedContactIds] = useState(new Set());
+  const [followerUids, setFollowerUids] = useState(new Set());
   
   const [waitingContacts, setWaitingContacts] = useState(new Set());
   const [userFirstName, setUserFirstName] = useState('');
@@ -82,6 +83,10 @@ export default function AddMoreFriendsScreen({ navigation }) {
       const followingSnapshot = await db.collection('following').doc(currentUser.uid).collection('userFollowing').get();
       const followedUserIdsSet = new Set(followingSnapshot.docs.map(doc => doc.id));
       setFollowingUids(followedUserIdsSet);
+      
+      const followersSnapshot = await db.collection('followers').doc(currentUser.uid).collection('userFollowers').get();
+      const followerIdsSet = new Set(followersSnapshot.docs.map(doc => doc.id));
+      setFollowerUids(followerIdsSet);
       
       const invitesSnapshot = await db.collection('users').doc(currentUser.uid).collection('onboardingInvites').get();
       const initialInvitedContactIds = new Set(invitesSnapshot.docs.map(doc => doc.id));
@@ -327,11 +332,16 @@ export default function AddMoreFriendsScreen({ navigation }) {
     if (isKaleUser) {
         const isFollowing = followingUids.has(id);
         const hasRequested = requestedUids.has(id);
+        const isFollower = followerUids.has(id);
         
         if (isFollowing) {
             buttonText = 'Following';
             onPressAction = () => handleUnfollow(item);
             isDone = true;
+        } else if (isFollower) {
+            buttonText = 'Follow back';
+            onPressAction = () => handleRequestFollow(item);
+            isDone = false;
         } else if (hasRequested) {
             buttonText = 'Requested';
             onPressAction = () => handleWithdrawRequest(item);

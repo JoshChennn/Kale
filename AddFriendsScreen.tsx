@@ -93,7 +93,10 @@ export default function AddFriendsScreen({ onOnboardingComplete }: Props) {
   const [sections, setSections] = React.useState<
     { title: string; data: (DisplayUser | NonKaleContact)[] }[]
   >([]);
-  const [followedOrInvited, setFollowedOrInvited] = React.useState(new Set());
+  const [followingUids, setFollowingUids] = React.useState(new Set<string>());
+  const [requestedUids, setRequestedUids] = React.useState(new Set<string>());
+  const [invitedContactIds, setInvitedContactIds] = React.useState(new Set<string>());
+  const [followerUids, setFollowerUids] = React.useState(new Set<string>());
   const [waitingContacts, setWaitingContacts] = React.useState(new Set());
   const [userFirstName, setUserFirstName] = React.useState('');
   const currentUser = auth.currentUser as FirebaseUser;
@@ -103,6 +106,9 @@ export default function AddFriendsScreen({ onOnboardingComplete }: Props) {
   const [followRequests, setFollowRequests] = React.useState<any[]>([]);
   const [loadingRequests, setLoadingRequests] = React.useState(true);
   const functions = require('./firebaseConfig').functions;
+  const requestToFollowUser = httpsCallable(functions, 'requestToFollowUser');
+  const withdrawFollowRequest = httpsCallable(functions, 'withdrawFollowRequest');
+  const unfollowUser = httpsCallable(functions, 'unfollowUser');
   const handleFollowRequest = httpsCallable(functions, 'handleFollowRequest');
 
   const showHelpModal = () => {
@@ -145,14 +151,11 @@ export default function AddFriendsScreen({ onOnboardingComplete }: Props) {
   React.useEffect(() => {
     const fetchUserData = async () => {
       if (!currentUser) return;
-      
       const userDoc = await db.collection('users').doc(currentUser.uid).get();
       if (userDoc.exists) {
-        const userData = userDoc.data();
-        setUserFirstName(userData?.firstName || '');
+        setUserFirstName(userDoc.data()?.firstName || '');
       }
     };
-    
     fetchUserData();
   }, [currentUser]);
 
@@ -198,31 +201,29 @@ export default function AddFriendsScreen({ onOnboardingComplete }: Props) {
     const fetchContactsAndUsers = async () => {
       if (!currentUser) return;
       setLoading(true);
-
       const { status } = await Contacts.getPermissionsAsync();
       if (status !== 'granted') {
         setLoading(false);
         return;
       }
-
       // 1. Fetch all necessary data from Firestore and device
       const followingSnapshot = await db.collection('following').doc(currentUser.uid).collection('userFollowing').get();
-      const followedUserIds = followingSnapshot.docs.map(doc => doc.id);
-      
+      const followedUserIdsSet = new Set(followingSnapshot.docs.map(doc => doc.id));
+      setFollowingUids(followedUserIdsSet);
+
+      const followersSnapshot = await db.collection('followers').doc(currentUser.uid).collection('userFollowers').get();
+      const followerIdsSet = new Set(followersSnapshot.docs.map(doc => doc.id));
+      setFollowerUids(followerIdsSet);
+
       const invitesSnapshot = await db.collection('users').doc(currentUser.uid).collection('onboardingInvites').get();
-      const invitedContactIds = invitesSnapshot.docs.map(doc => doc.id);
-
-      const initialFollowedOrInvited = new Set([...followedUserIds, ...invitedContactIds]);
-      setFollowedOrInvited(initialFollowedOrInvited);
-
+      const initialInvitedContactIds = new Set(invitesSnapshot.docs.map(doc => doc.id));
+      setInvitedContactIds(initialInvitedContactIds);
       const usersSnapshot = await db.collection('users').get();
       const allKaleUsers: { [key: string]: KaleUser } = {};
-      
       usersSnapshot.forEach(doc => {
         const data = doc.data();
         if (data && data.phoneNumber) {
             const key = data.phoneNumber.replace(/\D/g, '').slice(-10);
-            
             allKaleUsers[key] = {
               uid: doc.id,
               phoneNumber: data.phoneNumber,
@@ -233,65 +234,55 @@ export default function AddFriendsScreen({ onOnboardingComplete }: Props) {
             };
         }
       });
-      
       const { data: contacts } = await Contacts.getContactsAsync({
         fields: [Contacts.Fields.Name, Contacts.Fields.PhoneNumbers],
       });
-
       if (contacts.length === 0) {
         setLoading(false);
         return;
       }
-
       // Get current user's phone number for comparison
       const currentUserDoc = await db.collection('users').doc(currentUser.uid).get();
       const currentUserData = currentUserDoc.data();
       const currentUserPhoneNumber = currentUserData?.phoneNumber ? 
         currentUserData.phoneNumber.replace(/\D/g, '').slice(-10) : null;
-
       // 2. Process contacts, identify users on Kale, and detect invite-to-follow conversions
       const kaleUsers: DisplayUser[] = [];
       const nonKaleContacts: NonKaleContact[] = [];
       const processedNumbers = new Set<string>();
       const followBatch = db.batch();
       const uidsToFollow = new Set<string>();
-
       contacts.forEach(contact => {
         if (!contact.name || !contact.phoneNumbers || contact.phoneNumbers.length === 0 || !contact.id) return;
-
         const mainPhoneNumber = contact.phoneNumbers[0].number;
         if (!mainPhoneNumber) return;
-        
         const key = mainPhoneNumber.replace(/\D/g, '').slice(-10);
         if (processedNumbers.has(key) || key.length < 10) return;
-
         // Skip if this is the current user's phone number
         if (currentUserPhoneNumber && key === currentUserPhoneNumber) return;
-
         const matchedUser = allKaleUsers[key];
-        
         if (matchedUser && matchedUser.uid !== currentUser.uid) {
-          // This contact is a Kale user.
-          kaleUsers.push({
-            ...matchedUser,
-            originalContactName: contact.name,
-            originalPhoneNumber: mainPhoneNumber,
-          });
-
-          // AUTOMATIC FOLLOW: Check if this user was previously invited and has now joined.
-          if (initialFollowedOrInvited.has(contact.id) && !initialFollowedOrInvited.has(matchedUser.uid)) {
+          if (followedUserIdsSet.has(matchedUser.uid)) {
+            // Already following, don't show
+            return;
+          }
+          if (initialInvitedContactIds.has(contact.id)) {
+            // This person was invited and has since joined. Auto-follow them.
             const followingRef = db.collection('following').doc(currentUser.uid).collection('userFollowing').doc(matchedUser.uid);
             const followerRef = db.collection('followers').doc(matchedUser.uid).collection('userFollowers').doc(currentUser.uid);
             followBatch.set(followingRef, {});
             followBatch.set(followerRef, {});
             uidsToFollow.add(matchedUser.uid);
-            
-            // Clean up the old invite record.
             const inviteRef = db.collection('users').doc(currentUser.uid).collection('onboardingInvites').doc(contact.id);
             followBatch.delete(inviteRef);
+            return;
           }
+          kaleUsers.push({
+            ...matchedUser,
+            originalContactName: contact.name,
+            originalPhoneNumber: mainPhoneNumber,
+          });
         } else {
-          // This contact is not on Kale.
           nonKaleContacts.push({
             id: contact.id,
             name: contact.name,
@@ -300,99 +291,109 @@ export default function AddFriendsScreen({ onOnboardingComplete }: Props) {
         }
         processedNumbers.add(key);
       });
-
-      // 3. Commit automatic follows to Firestore and update local state
       if (uidsToFollow.size > 0) {
         try {
           await followBatch.commit();
-          setFollowedOrInvited(prev => {
-            const newSet = new Set(prev);
-            uidsToFollow.forEach(uid => newSet.add(uid));
-            return newSet;
-          });
+          setFollowingUids(prev => new Set([...prev, ...uidsToFollow]));
         } catch (error) {
           console.error("Error committing automatic follows: ", error);
         }
       }
-
-      // 4. Sort and build the final sections for the UI
+      // Check for existing follow requests for the users we are about to display
+      if (kaleUsers.length > 0) {
+        const requestChecks = kaleUsers.map(user =>
+          db.collection('users').doc(user.uid).collection('followRequests').doc(currentUser.uid).get()
+        );
+        try {
+          const requestSnapshots = await Promise.all(requestChecks);
+          const pendingRequestUids = new Set<string>();
+          requestSnapshots.forEach((snap, index) => {
+            if (snap.exists) {
+              pendingRequestUids.add(kaleUsers[index].uid);
+            }
+          });
+          setRequestedUids(pendingRequestUids);
+        } catch (error) {
+          console.error("Error checking for pending follow requests:", error);
+        }
+      }
       kaleUsers.sort((a, b) => (a.displayName || a.originalContactName).localeCompare(b.displayName || b.originalContactName));
       nonKaleContacts.sort((a, b) => a.name.localeCompare(b.name));
-
       const newSections = [];
-      if (kaleUsers.length > 0) {
-        newSections.push({ title: 'Already On Kale', data: kaleUsers });
-      }
-      if (nonKaleContacts.length > 0) {
-        newSections.push({ title: 'Not On Kale Yet', data: nonKaleContacts });
-      }
+      if (kaleUsers.length > 0) newSections.push({ title: 'Already On Kale', data: kaleUsers });
+      if (nonKaleContacts.length > 0) newSections.push({ title: 'Not On Kale Yet', data: nonKaleContacts });
       setSections(newSections);
       setLoading(false);
     };
-
     fetchContactsAndUsers();
   }, [currentUser]);
 
-  const handleFollow = async (userToFollow: KaleUser) => {
-    if (followedOrInvited.has(userToFollow.uid) || !currentUser) return;
-
-    const batch = db.batch();
-    const followingRef = db.collection('following').doc(currentUser.uid)
-      .collection('userFollowing').doc(userToFollow.uid);
-    batch.set(followingRef, {});
-
-    const followerRef = db.collection('followers').doc(userToFollow.uid)
-      .collection('userFollowers').doc(currentUser.uid);
-    batch.set(followerRef, {});
-      
+  // --- Button handlers ---
+  const handleRequestFollow = async (userToRequest: KaleUser) => {
+    if (!currentUser || requestedUids.has(userToRequest.uid)) return;
+    setRequestedUids(prev => new Set(prev).add(userToRequest.uid)); // Optimistic
     try {
-      setFollowedOrInvited(prev => new Set(prev).add(userToFollow.uid));
-      await batch.commit();
+      await requestToFollowUser({ userIdToFollow: userToRequest.uid });
     } catch (error) {
-      console.error("Error following user: ", error);
-      setFollowedOrInvited(prev => {
+      setRequestedUids(prev => {
         const newSet = new Set(prev);
-        newSet.delete(userToFollow.uid);
+        newSet.delete(userToRequest.uid);
         return newSet;
       });
-      Alert.alert('Error', 'Could not follow user. Please try again.');
+      Alert.alert('Error', 'Could not send follow request. Please try again.');
     }
   };
-
+  const handleWithdrawRequest = async (userToWithdrawFrom: KaleUser) => {
+    if (!currentUser || !requestedUids.has(userToWithdrawFrom.uid)) return;
+    setRequestedUids(prev => {
+      const newSet = new Set(prev);
+      newSet.delete(userToWithdrawFrom.uid);
+      return newSet;
+    });
+    try {
+      await withdrawFollowRequest({ userIdToWithdrawFrom: userToWithdrawFrom.uid });
+    } catch (error) {
+      setRequestedUids(prev => new Set(prev).add(userToWithdrawFrom.uid));
+      Alert.alert('Error', 'Could not withdraw request. Please try again.');
+    }
+  };
+  const handleUnfollow = async (userToUnfollow: KaleUser) => {
+    if (!currentUser || !followingUids.has(userToUnfollow.uid)) return;
+    setFollowingUids(prev => {
+      const newSet = new Set(prev);
+      newSet.delete(userToUnfollow.uid);
+      return newSet;
+    });
+    try {
+      await unfollowUser({ userIdToUnfollow: userToUnfollow.uid });
+    } catch (error) {
+      setFollowingUids(prev => new Set(prev).add(userToUnfollow.uid));
+      Alert.alert('Error', 'Could not unfollow user. Please try again.');
+    }
+  };
   const handleInvite = async (contactToInvite: NonKaleContact) => {
-    if (followedOrInvited.has(contactToInvite.id) || !currentUser || waitingContacts.has(contactToInvite.id)) return;
-
+    if (invitedContactIds.has(contactToInvite.id) || !currentUser || waitingContacts.has(contactToInvite.id)) return;
     setWaitingContacts(prev => new Set(prev).add(contactToInvite.id));
-    
     const inviteMessage = getInviteMessage(userFirstName);
     const isAvailable = await SMS.isAvailableAsync();
-    
     if (isAvailable) {
-        try {
-            const { result } = await SMS.sendSMSAsync(
-                [contactToInvite.phoneNumber],
-                inviteMessage
-            );
-
-            if(result === 'sent' || result === 'unknown') {
-                setFollowedOrInvited(prev => new Set(prev).add(contactToInvite.id));
-                await db.collection('users').doc(currentUser.uid)
-                    .collection('onboardingInvites').doc(contactToInvite.id)
-                    .set({ invitedAt: new Date() });
-            }
-        } catch (error) {
-            console.error("Error sending or saving invite:", error);
-            setFollowedOrInvited(prev => {
-                const newSet = new Set(prev);
-                newSet.delete(contactToInvite.id);
-                return newSet;
-            });
-            Alert.alert('Error', 'Could not save your invite. Please try again.');
+      try {
+        const { result } = await SMS.sendSMSAsync(
+          [contactToInvite.phoneNumber],
+          inviteMessage
+        );
+        if(result === 'sent' || result === 'unknown') {
+          setInvitedContactIds(prev => new Set(prev).add(contactToInvite.id));
+          await db.collection('users').doc(currentUser.uid)
+            .collection('onboardingInvites').doc(contactToInvite.id)
+            .set({ invitedAt: new Date() });
         }
+      } catch (error) {
+        Alert.alert('Error', 'Could not save your invite. Please try again.');
+      }
     } else {
       Alert.alert('SMS Not Available', 'Could not open the SMS app on your device.');
     }
-    
     setWaitingContacts(prev => {
       const newSet = new Set(prev);
       newSet.delete(contactToInvite.id);
@@ -400,95 +401,86 @@ export default function AddFriendsScreen({ onOnboardingComplete }: Props) {
     });
   };
 
-  const handleUnfollow = async (userToUnfollow: KaleUser) => {
-    if (!currentUser) return;
-
-    const batch = db.batch();
-    const followingRef = db.collection('following').doc(currentUser.uid)
-      .collection('userFollowing').doc(userToUnfollow.uid);
-    batch.delete(followingRef);
-    const followerRef = db.collection('followers').doc(userToUnfollow.uid)
-      .collection('userFollowers').doc(currentUser.uid);
-    batch.delete(followerRef);
-      
-    try {
-      setFollowedOrInvited(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(userToUnfollow.uid);
-        return newSet;
-      });
-      await batch.commit();
-    } catch (error) {
-      console.error("Error unfollowing user: ", error);
-      setFollowedOrInvited(prev => new Set(prev).add(userToUnfollow.uid));
-      Alert.alert('Error', 'Could not unfollow user. Please try again.');
-    }
-  };
-  
-  const count = followedOrInvited.size;
+  // --- Button logic ---
+  const count = followingUids.size + requestedUids.size + invitedContactIds.size;
   const canContinue = count >= MINIMUM_FOLLOW_INVITE;
 
   const renderItem = ({ item, section }: { item: DisplayUser | NonKaleContact; section: { title: string } }) => {
     const isKaleUser = section.title === 'Already On Kale';
-    const kaleItem = item as DisplayUser;
-    
-    const id = isKaleUser ? kaleItem.uid : (item as NonKaleContact).id;
-    const isDone = followedOrInvited.has(id);
+    const id = isKaleUser ? (item as DisplayUser).uid : (item as NonKaleContact).id;
     const isWaiting = waitingContacts.has(id);
-    
-    // Dynamically determine what to display based on available data
-    const displayName = isKaleUser ? (kaleItem.displayName || kaleItem.username || kaleItem.originalContactName) : (item as NonKaleContact).name;
-    const detailText = isKaleUser ? (kaleItem.username ? `@${kaleItem.username}` : kaleItem.originalPhoneNumber) : (item as NonKaleContact).phoneNumber;
+    const displayName = isKaleUser ? ((item as DisplayUser).displayName || (item as DisplayUser).username || (item as DisplayUser).originalContactName) : (item as NonKaleContact).name;
+    const detailText = isKaleUser ? ((item as DisplayUser).username ? `@${(item as DisplayUser).username}` : (item as DisplayUser).originalPhoneNumber) : (item as NonKaleContact).phoneNumber;
+    let buttonText = '';
+    let onPressAction = undefined;
+    let isDone = false;
+    let isDisabled = false;
+    if (isKaleUser) {
+      const isFollowing = followingUids.has(id);
+      const hasRequested = requestedUids.has(id);
+      const isFollower = followerUids.has(id);
 
-    let buttonText = isKaleUser
-      ? (isDone ? 'Following' : 'Follow')
-      : (isDone ? 'Requested' : 'Follow');
-
-    if (isWaiting) {
-      const dots = '.'.repeat(ellipsisState);
-      buttonText = `Waiting${dots}`;
+      if (isFollowing) {
+        buttonText = 'Following';
+        onPressAction = () => handleUnfollow(item as DisplayUser);
+        isDone = true;
+      } else if (isFollower) {
+        buttonText = 'Follow back';
+        onPressAction = () => handleRequestFollow(item as DisplayUser);
+        isDone = false;
+      } else if (hasRequested) {
+        buttonText = 'Requested';
+        onPressAction = () => handleWithdrawRequest(item as DisplayUser);
+        isDone = true;
+      } else {
+        buttonText = 'Follow';
+        onPressAction = () => handleRequestFollow(item as DisplayUser);
+        isDone = false;
+      }
+    } else {
+      const isInvited = invitedContactIds.has(id);
+      if (isWaiting) {
+        const dots = '.'.repeat(ellipsisState);
+        buttonText = `Waiting${dots}`;
+        onPressAction = () => {};
+        isDisabled = true;
+      } else if (isInvited) {
+        buttonText = 'Requested';
+        onPressAction = () => {};
+        isDone = true;
+        isDisabled = true;
+      } else {
+        buttonText = 'Follow';
+        onPressAction = () => handleInvite(item as NonKaleContact);
+        isDone = false;
+      }
     }
-
     return (
       <View style={styles.contactRow}>
-        {isKaleUser && (
-          kaleItem.photoURL ? (
-            <Image source={{ uri: kaleItem.photoURL }} style={styles.profileImage} />
-          ) : (
-            <Image 
-              source={require('./assets/default-profile-photo.png')} 
-              style={styles.profileImage} 
-            />
-          )
-        )}
-        {!isKaleUser && (
-          <Image 
-            source={require('./assets/default-profile-photo.png')} 
-            style={styles.profileImage} 
-          />
-        )}
-
+        <Image
+          source={isKaleUser && (item as DisplayUser).photoURL ? { uri: (item as DisplayUser).photoURL } : require('./assets/default-profile-photo.png')}
+          style={styles.profileImage}
+        />
         <View style={styles.contactInfo}>
-            <Text style={styles.contactName} numberOfLines={1}>{displayName}</Text>
-            <Text style={styles.contactDetail} numberOfLines={1}>{detailText}</Text>
+          <Text style={styles.contactName} numberOfLines={1}>{displayName}</Text>
+          <Text style={styles.contactDetail} numberOfLines={1}>{detailText}</Text>
         </View>
-
         <Pressable
-            onPress={() => isKaleUser ? (isDone ? handleUnfollow(item as DisplayUser) : handleFollow(item as DisplayUser)) : handleInvite(item as NonKaleContact)}
-            style={[
-                styles.actionButton, 
-                isDone && styles.actionButtonDone,
-                isWaiting && styles.actionButtonWaiting
-            ]}
-            disabled={isWaiting}
+          onPress={onPressAction}
+          style={[
+            styles.actionButton,
+            isDone && styles.actionButtonDone,
+            isWaiting && styles.actionButtonWaiting
+          ]}
+          disabled={isDisabled || isWaiting}
         >
-            <Text style={[
-                styles.actionButtonText, 
-                isDone && styles.actionButtonTextDone,
-                isWaiting && styles.actionButtonTextWaiting
-            ]}>
-                {buttonText}
-            </Text>
+          <Text style={[
+            styles.actionButtonText,
+            isDone && styles.actionButtonTextDone,
+            isWaiting && styles.actionButtonTextWaiting
+          ]}>
+            {buttonText}
+          </Text>
         </Pressable>
       </View>
     );
@@ -589,9 +581,9 @@ export default function AddFriendsScreen({ onOnboardingComplete }: Props) {
                         showsVerticalScrollIndicator={false}
                     >
                         <Text style={styles.modalTitle}>
-                        Since Kale is <Text style={{ color: '#4F6A56' }}>only</Text> for friends (no reels), you'll need to add some people first.
+                        Since Kale is <Text style={{ color: '#4F6A56' }}>only</Text> for friends (no reels), you'll need to add some people to use it.
                         {'\n\n'}
-                        <Text style={styles.modalEmoji}>👋👋</Text>{'\n\n'}
+                        <Text style={styles.modalEmoji}>🤝</Text>{'\n\n'}
                         Here's how it works:
                         </Text>
                         <Text style={styles.modalStep}>1. You can follow anyone from your contacts. 📒</Text>
@@ -700,13 +692,13 @@ export default function AddFriendsScreen({ onOnboardingComplete }: Props) {
             <View style={styles.titleRow}>
                 <Text style={styles.title}>
                     {count >= MINIMUM_FOLLOW_INVITE 
-                        ? "The more you add, the less you'll want to check Instagram :)"
+                        ? "The more friends you add, the less you'll want to check Instagram :)"
                         : `Follow at least ${MINIMUM_FOLLOW_INVITE} friends to get started.`}
                 </Text>
             </View>
             <Text style={styles.counter}>🥬 {count}{count < MINIMUM_FOLLOW_INVITE ? `/${MINIMUM_FOLLOW_INVITE}` : ''}</Text>
             <Pressable onPress={showHelpModal}>
-                <Text style={styles.helpText}>Why?</Text>
+                <MaterialIcons name="help" size={22} color="#b6b6b6" style={{marginTop:22}} />
             </Pressable>
         </View>
 

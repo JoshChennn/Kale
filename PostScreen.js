@@ -35,6 +35,7 @@ export default function PostScreen({ route, navigation }) {
   const [selectedPhotos, setSelectedPhotos] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
   const [currentUserData, setCurrentUserData] = useState(null);
+  const [activeIndex, setActiveIndex] = useState(0);
   
   // Comments state
   const [comments, setComments] = useState([]);
@@ -84,14 +85,14 @@ export default function PostScreen({ route, navigation }) {
 
   const pickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images, // Only images for simplicity in this flow
-      allowsEditing: true,
-      aspect: [1, 1],
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 0.8,
+      allowsMultipleSelection: true,
     });
 
     if (!result.canceled) {
-      setSelectedPhotos([result.assets[0].uri]); // Only handle one photo for this UI
+      const uris = result.assets.map(asset => asset.uri);
+      setSelectedPhotos(uris);
     }
   };
 
@@ -146,12 +147,13 @@ export default function PostScreen({ route, navigation }) {
 
     setIsUploading(true);
     try {
-      let imageUri = null;
+      let imageUris = [];
       let mediaType = 'text';
 
       if (selectedPhotos && selectedPhotos.length > 0) {
-        imageUri = await uploadFileAsync(selectedPhotos[0]);
-        mediaType = 'image';
+        const uploadPromises = selectedPhotos.map(uri => uploadFileAsync(uri));
+        imageUris = await Promise.all(uploadPromises);
+        mediaType = imageUris.length > 1 ? 'multi-image' : 'image';
       }
 
       await addDoc(collection(db, "posts"), {
@@ -159,7 +161,7 @@ export default function PostScreen({ route, navigation }) {
         userName: currentUserData.displayName,
         userUsername: currentUserData.username,
         userAvatar: currentUserData.photoURL,
-        imageUri: imageUri || '',
+        imageUris: imageUris,
         mediaType: mediaType,
         caption: caption.trim(),
         commentsCount: 0,
@@ -272,7 +274,29 @@ export default function PostScreen({ route, navigation }) {
                 ) : (
                     // Image Post Mockup
                     <>
-                        <Image source={{ uri: selectedPhotos[0] }} style={styles.postImage} />
+                        <View style={{ position: 'relative', width: screenWidth, height: screenWidth, backgroundColor: 'transparent' }}>
+                          <FlatList
+                            data={selectedPhotos}
+                            renderItem={({ item }) => <Image source={{ uri: item }} style={styles.postImage} />}
+                            horizontal
+                            pagingEnabled
+                            showsHorizontalScrollIndicator={false}
+                            keyExtractor={(item, index) => index.toString()}
+                            onViewableItemsChanged={({ viewableItems }) => {
+                              if (viewableItems.length > 0) {
+                                setActiveIndex(viewableItems[0].index || 0);
+                              }
+                            }}
+                            viewabilityConfig={{ itemVisiblePercentThreshold: 50 }}
+                          />
+                          {selectedPhotos.length > 1 && (
+                            <View style={[styles.paginationContainer, { zIndex: 10 }]}> 
+                              {selectedPhotos.map((_, index) => (
+                                <View key={index} style={[styles.paginationDot, activeIndex === index ? styles.paginationDotActive : {}]} />
+                              ))}
+                            </View>
+                          )}
+                        </View>
                         <View style={styles.captionContainer}>
                             <TextInput
                                 placeholder="Write a caption..."
@@ -303,7 +327,7 @@ export default function PostScreen({ route, navigation }) {
                     >
                         <MaterialIcons name="photo-camera" size={24} color="#fff" />
                         <Text style={styles.addPhotoText}>
-                            {selectedPhotos.length > 0 ? 'Change Photo' : 'Add Photo'}
+                            {selectedPhotos.length > 0 ? 'Change Photos' : 'Add Photos'}
                         </Text>
                     </TouchableOpacity>
                 </View>
@@ -341,9 +365,21 @@ export default function PostScreen({ route, navigation }) {
         data={comments}
         keyExtractor={item => item.id}
         renderItem={renderComment}
-        ListHeaderComponent={() => (
-          post?.imageUri ? <Image source={{ uri: post.imageUri }} style={styles.postImage} /> : null
-        )}
+        ListHeaderComponent={() => {
+          const images = post?.imageUris || (post?.imageUri ? [post.imageUri] : []);
+          if (images.length === 0) return null;
+
+          return (
+            <FlatList
+              data={images}
+              renderItem={({ item }) => <Image source={{ uri: item }} style={styles.postImage} />}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              keyExtractor={(item, index) => index.toString()}
+            />
+          );
+        }}
         ListEmptyComponent={() => (
           <Text style={styles.noCommentsText}>No comments yet. Be the first!</Text>
         )}
@@ -606,5 +642,24 @@ const styles = StyleSheet.create({
   },
   sendButton: {
     marginLeft: 10,
+  },
+  paginationContainer: {
+    position: 'absolute',
+    bottom: 15,
+    flexDirection: 'row',
+    alignSelf: 'center',
+    zIndex: 2,
+    width: '100%',
+    justifyContent: 'center',
+  },
+  paginationDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+    marginHorizontal: 4,
+  },
+  paginationDotActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
   },
 });

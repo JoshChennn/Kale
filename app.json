@@ -15,14 +15,18 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.usekale.kale",
-      "buildNumber": "1.0.0"
+      "buildNumber": "1.0.0",
+      "runtimeVersion": "1.0.0"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "runtimeVersion": {
+        "policy": "appVersion"
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -30,6 +34,15 @@
     "plugins": [
       "expo-font",
       "expo-video"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "336d0557-1466-49e7-ae4a-2eb6b5ee3da3"
+      }
+    },
+    "owner": "joshkale",
+    "updates": {
+      "url": "https://u.expo.dev/336d0557-1466-49e7-ae4a-2eb6b5ee3da3"
+    }
   }
 }

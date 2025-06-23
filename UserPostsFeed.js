@@ -293,19 +293,28 @@ const CommentsBottomSheet = ({ isVisible, onClose, post, navigation, closeCommen
         if (recipientId === commenterId) return;
 
         const notificationsColRef = collection(db, 'users', recipientId, 'notifications');
-        await addDoc(notificationsColRef, {
+        const notificationData = {
           type,
           actorId: commenterId,
           actorName: currentUserData.username || currentUserData.displayName,
           actorAvatar: currentUserData.photoURL,
           postId: post.id,
-          postOwnerId: postOwnerId, // For easy navigation from feed
-          postImageUri: post.imageUri, // For thumbnail in feed
+          postOwnerId: postOwnerId,
           commentId: newCommentId,
-          commentText: commentText.substring(0, 100), // Truncate for preview
+          commentText: commentText.substring(0, 100),
           createdAt: Timestamp.now(),
           read: false
-        });
+        };
+
+        if (
+          Array.isArray(post.imageUris) &&
+          typeof post.imageUris[0] === 'string' &&
+          post.imageUris[0].length > 0
+        ) {
+          notificationData.postImageUri = post.imageUris[0];
+        }
+
+        await addDoc(notificationsColRef, notificationData);
       };
 
       await createNotification(postOwnerId, replyInfo ? 'reply_on_post' : 'comment_on_post');
@@ -627,9 +636,12 @@ export default function UserPostsFeed({ navigation, route }) {
   const [isCommentsSheetVisible, setCommentsSheetVisible] = useState(false);
   const [selectedPostForComments, setSelectedPostForComments] = useState(null);
 
+  const [activeIndexes, setActiveIndexes] = useState({});
+
   const openCommentsSheet = (post) => {
     setSelectedPostForComments(post);
     setCommentsSheetVisible(true);
+    hasScrolledToInitialPost.current = true;
   };
 
   const closeCommentsSheet = () => {
@@ -789,7 +801,7 @@ export default function UserPostsFeed({ navigation, route }) {
       unsubscribeUser();
       unsubscribePosts();
     };
-  }, [userId, currentUserId, initialPost]);
+  }, [userId, currentUserId]);
 
   // Scroll to initial post when posts are loaded
   useEffect(() => {
@@ -989,6 +1001,154 @@ export default function UserPostsFeed({ navigation, route }) {
     );
   };
 
+  const renderPost = ({ item: post }) => {
+    if (!heartAnims.has(post.id)) heartAnims.set(post.id, new Animated.Value(0));
+    if (!likeButtonAnims.has(post.id)) likeButtonAnims.set(post.id, new Animated.Value(1.1));
+    const heartAnim = heartAnims.get(post.id);
+    const likeButtonAnim = likeButtonAnims.get(post.id);
+
+    const isOwnPost = post.user.id === currentUserId;
+
+    const activeIndex = activeIndexes[post.id] || 0;
+    const onViewableItemsChanged = ({ viewableItems }) => {
+      if (viewableItems.length > 0) {
+        const newIndex = viewableItems[0].index;
+        // Only update state if the index has actually changed
+        if (newIndex !== undefined && activeIndex !== newIndex) {
+          setActiveIndexes(prev => ({
+            ...prev,
+            [post.id]: newIndex,
+          }));
+        }
+      }
+    };
+    
+    const images = post.imageUris || (post.imageUri ? [post.imageUri] : []);
+
+    const renderContent = () => {
+      if (images.length === 0) {
+        // Text-only post
+        return (
+          <TouchableWithoutFeedback onPress={() => handleDoubleTap(post)}>
+            <View style={styles.textOnlyCaptionContainer}>
+              <Text style={styles.textOnlyCaption}>{post.caption}</Text>
+            </View>
+          </TouchableWithoutFeedback>
+        );
+      }
+      // Image/Multi-image post
+      return (
+        <View style={styles.postImageContainer}>
+          <FlatList
+            data={images}
+            renderItem={({ item: imageUri }) => (
+              <Pressable onPress={() => handleDoubleTap(post)}>
+                <Image source={{ uri: imageUri }} style={styles.postImage} />
+              </Pressable>
+            )}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            keyExtractor={(item, index) => `${post.id}-image-${index}`}
+            style={{ width: screenWidth }}
+            onViewableItemsChanged={onViewableItemsChanged}
+            viewabilityConfig={{ itemVisiblePercentThreshold: 50 }}
+          />
+          {images.length > 1 && (
+            <View style={styles.paginationContainer}>
+              {images.map((_, index) => (
+                <View key={index} style={[styles.paginationDot, activeIndex === index ? styles.paginationDotActive : {}]} />
+              ))}
+            </View>
+          )}
+          <Animated.View
+            style={[ styles.heartContainer, {
+                opacity: heartAnim,
+                transform: [
+                  { scale: heartAnim.interpolate({
+                      inputRange: [0, 0.5, 1],
+                      outputRange: [0.5, 1.2, 1],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <Ionicons name="heart" size={100} color="#8BA637" />
+          </Animated.View>
+        </View>
+      );
+    };
+
+    return (
+      <View 
+        style={styles.postCard}
+        onLayout={(event) => {
+          const layout = event.nativeEvent.layout;
+          postRefs.set(post.id, {
+            ...layout,
+            measureLayout: (ref, success) => {
+              if (ref && ref.measure) {
+                 ref.measure((fx, fy, width, height, px, py) => {
+                   success(px, py + layout.y, width, height);
+                 });
+              }
+            }
+          });
+        }}
+      >
+        <View style={styles.postHeader}>
+          <Pressable
+            onPress={() => handleProfilePress(post.user.id)}
+          >
+            <Image source={{ uri: post.user.avatar }} style={styles.avatar} />
+          </Pressable>
+          <View style={styles.postHeaderTextRow}>
+            <Pressable onPress={() => handleProfilePress(post.user.id)}>
+              <Text style={styles.postUsername}>
+                {post.user.name}
+                {post.user.username && (
+                  <Text style={styles.postUsernameHandle}> (@{post.user.username})</Text>
+                )}
+              </Text>
+            </Pressable>
+            <Text style={styles.postDate}>{post.date}</Text>
+          </View>
+          {isOwnPost && (
+            <Pressable style={styles.threeDotsButton} onPress={() => showPostActions(post.id)}>
+              <Ionicons name="ellipsis-horizontal" size={18} color="#53544D" />
+            </Pressable>
+          )}
+        </View>
+        
+        {renderContent()}
+
+        <View style={styles.actionButtonsContainer}>
+          <Pressable style={styles.actionButton} onPress={() => handleLikeToggle(post.id, post.likedByCurrentUser)} >
+            <Animated.View style={{ transform: [{ scale: likeButtonAnim }] }}>
+              <Ionicons 
+                name={post.likedByCurrentUser ? "heart" : "heart-outline"} 
+                size={28} 
+                color={post.likedByCurrentUser ? "#8BA637" : "#53544D"}
+              />
+            </Animated.View>
+          </Pressable>
+          <Pressable style={styles.actionButton} onPress={() => openCommentsSheet(post)} >
+            <Ionicons name="chatbubble-outline" size={28} color="#53544D" />
+          </Pressable>
+        </View>
+        {post.caption && images.length > 0 && (
+          <View style={styles.captionContainer}>
+            <Text style={styles.captionText}>{post.caption}</Text>
+          </View>
+        )}
+        <Pressable style={styles.commentsBtn} onPress={() => openCommentsSheet(post)} >
+          <Text style={styles.commentsText}>View comments ({post.commentsCount || 0})</Text>
+        </Pressable>
+      </View>
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -997,10 +1157,25 @@ export default function UserPostsFeed({ navigation, route }) {
         </Pressable>
         <Text style={styles.headerTitle}>All Posts</Text>
       </View>
-      <ScrollView
+      <FlatList
+        ref={scrollViewRef}
+        data={posts}
+        renderItem={renderPost}
+        keyExtractor={(item) => item.id}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
-        ref={scrollViewRef}
+        onLayout={(e) => {
+          if (initialPost && posts.length > 0 && !hasScrolledToInitialPost.current) {
+            const postIndex = posts.findIndex(p => p.id === initialPost.id);
+            if (postIndex !== -1) {
+              scrollViewRef.current?.scrollToIndex({
+                index: postIndex,
+                animated: false,
+              });
+              hasScrolledToInitialPost.current = true;
+            }
+          }
+        }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -1010,94 +1185,7 @@ export default function UserPostsFeed({ navigation, route }) {
             progressBackgroundColor="#FFFFFF"
           />
         }
-      >
-        {posts.map((post) => {
-          if (!heartAnims.has(post.id)) heartAnims.set(post.id, new Animated.Value(0));
-          if (!likeButtonAnims.has(post.id)) likeButtonAnims.set(post.id, new Animated.Value(1.1));
-          const heartAnim = heartAnims.get(post.id);
-          const likeButtonAnim = likeButtonAnims.get(post.id);
-
-          const isOwnPost = post.user.id === currentUserId;
-
-          return (
-            <View 
-              key={post.id} 
-              style={styles.postCard}
-              ref={(ref) => {
-                if (ref) {
-                  postRefs.set(post.id, ref);
-                }
-              }}
-            >
-              <View style={styles.postHeader}>
-                <Pressable
-                  onPress={() => handleProfilePress(post.user.id)}
-                >
-                  <Image source={{ uri: post.user.avatar }} style={styles.avatar} />
-                </Pressable>
-                <View style={styles.postHeaderTextRow}>
-                  <Pressable onPress={() => handleProfilePress(post.user.id)}>
-                    <Text style={styles.postUsername}>
-                      {post.user.name}
-                      {post.user.username && (
-                        <Text style={styles.postUsernameHandle}> (@{post.user.username})</Text>
-                      )}
-                    </Text>
-                  </Pressable>
-                  <Text style={styles.postDate}>{post.date}</Text>
-                </View>
-                {isOwnPost && (
-                  <Pressable style={styles.threeDotsButton} onPress={() => showPostActions(post.id)}>
-                    <Ionicons name="ellipsis-horizontal" size={18} color="#53544D" />
-                  </Pressable>
-                )}
-              </View>
-              <View style={styles.postImageContainer}>
-                <Pressable onPress={() => handleDoubleTap(post)}>
-                  <Image source={{ uri: post.imageUri }} style={styles.postImage} />
-                </Pressable>
-                <Animated.View
-                  style={[ styles.heartContainer, {
-                      opacity: heartAnim,
-                      transform: [
-                        { scale: heartAnim.interpolate({
-                            inputRange: [0, 0.5, 1],
-                            outputRange: [0.5, 1.2, 1],
-                          }),
-                        },
-                      ],
-                    },
-                  ]}
-                >
-                  <Ionicons name="heart" size={100} color="#8BA637" />
-                </Animated.View>
-              </View>
-              <View style={styles.actionButtonsContainer}>
-                <Pressable style={styles.actionButton} onPress={() => handleLikeToggle(post.id, post.likedByCurrentUser)} >
-                  <Animated.View style={{ transform: [{ scale: likeButtonAnim }] }}>
-                    <Ionicons 
-                      name={post.likedByCurrentUser ? "heart" : "heart-outline"} 
-                      size={28} 
-                      color={post.likedByCurrentUser ? "#8BA637" : "#53544D"}
-                    />
-                  </Animated.View>
-                </Pressable>
-                <Pressable style={styles.actionButton} onPress={() => openCommentsSheet(post)} >
-                  <Ionicons name="chatbubble-outline" size={28} color="#53544D" />
-                </Pressable>
-              </View>
-              {post.caption && (
-                <View style={styles.captionContainer}>
-                  <Text style={styles.captionText}>{post.caption}</Text>
-                </View>
-              )}
-              <Pressable style={styles.commentsBtn} onPress={() => openCommentsSheet(post)} >
-                <Text style={styles.commentsText}>View comments ({post.commentsCount || 0})</Text>
-              </Pressable>
-            </View>
-          );
-        })}
-      </ScrollView>
+      />
 
       {selectedPostForComments && (
         <CommentsBottomSheet
@@ -1191,7 +1279,7 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   postImage: {
-    width: '100%',
+    width: screenWidth,
     aspectRatio: 1,
     resizeMode: 'cover',
   },
@@ -1416,5 +1504,33 @@ const styles = StyleSheet.create({
   // --- END OF CommentsBottomSheet STYLES ---
   threeDotsButton: {
     paddingLeft: 15,
+  },
+  paginationContainer: {
+    position: 'absolute',
+    bottom: 15,
+    flexDirection: 'row',
+    alignSelf: 'center',
+  },
+  paginationDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+    marginHorizontal: 4,
+  },
+  paginationDotActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+  },
+  textOnlyCaptionContainer: {
+    paddingHorizontal: 30,
+    paddingVertical: 20,
+    minHeight: 150,
+    justifyContent: 'center',
+  },
+  textOnlyCaption: {
+    fontFamily: 'PatrickHand-Regular',
+    fontSize: 24,
+    color: '#53544D',
+    lineHeight: 32,
   },
 });

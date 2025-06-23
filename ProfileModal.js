@@ -1,15 +1,17 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { View, StyleSheet, Image, SafeAreaView, Text, ScrollView, Dimensions, Pressable, Animated } from 'react-native';
+import { View, StyleSheet, Image, SafeAreaView, Text, ScrollView, Dimensions, Pressable, Animated, LayoutAnimation, UIManager, Platform, Alert, ActivityIndicator } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { db, auth } from './firebaseConfig';
+import { db, auth, functions } from './firebaseConfig';
 import { httpsCallable } from 'firebase/functions';
-import { Alert, ActivityIndicator } from 'react-native';
-import { functions } from './firebaseConfig';
-import defaultProfilePhoto from './assets/default-profile-photo.png';
+import * as Haptics from 'expo-haptics';
 
-// Import SVG icons for close friends toggle
+import defaultProfilePhoto from './assets/default-profile-photo.png';
 import StarActiveIcon from './assets/star-active.svg';
 import StarInactiveIcon from './assets/star-inactive.svg';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 const screenWidth = Dimensions.get('window').width;
 const gridMargin = 1;
@@ -30,6 +32,7 @@ export default function ProfileModal({ navigation, route }) {
   const [followerCount, setFollowerCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
   const [isCloseFriend, setIsCloseFriend] = useState(false);
+  const [showStats, setShowStats] = useState(false);
 
   // For the animated popdown notification
   const [popdownMessage, setPopdownMessage] = useState('');
@@ -137,6 +140,7 @@ export default function ProfileModal({ navigation, route }) {
 
   const handleRequestFollow = useCallback(async () => {
     if (isCurrentUser || isFollowing || hasRequested) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setHasRequested(true);
     try {
       await requestToFollowUser({ userIdToFollow: userId });
@@ -149,6 +153,7 @@ export default function ProfileModal({ navigation, route }) {
 
   const handleWithdrawRequest = useCallback(async () => {
     if (isCurrentUser || !hasRequested) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setHasRequested(false);
     try {
       await withdrawFollowRequest({ userIdToWithdrawFrom: userId });
@@ -161,6 +166,7 @@ export default function ProfileModal({ navigation, route }) {
 
   const handleUnfollow = useCallback(() => {
     if (isCurrentUser || !isFollowing) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     Alert.alert(
       `Unfollow @${user?.username || 'user'}?`,
       "You will need to request to follow them again to see their posts.",
@@ -186,6 +192,7 @@ export default function ProfileModal({ navigation, route }) {
 
   const handleToggleCloseFriend = async () => {
     if (!currentUserId || !userId) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const followingDocRef = db.collection('following').doc(currentUserId).collection('userFollowing').doc(userId);
     const newCloseFriendStatus = !isCloseFriend;
     
@@ -219,14 +226,21 @@ export default function ProfileModal({ navigation, route }) {
     );
   }
 
-  // Only show posts with a non-empty imageUri in the grid list
+  // Only show posts with image content in the grid list
   const mappedPosts = userPosts
-    .filter(p => p.imageUri && p.imageUri.trim() !== '')
-    .map(p => ({
-      ...p,
-      user: { id: p.userId, name: p.userName, avatar: p.userAvatar },
-      date: p.createdAt ? p.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'someday'
-    }));
+    .filter(p => (p.imageUri && p.imageUri.trim() !== '') || (p.imageUris && p.imageUris.length > 0))
+    .map(p => {
+      const images = p.imageUris || (p.imageUri ? [p.imageUri] : []);
+      return {
+        ...p,
+        // Pass the full image list to the feed screen
+        imageUris: images, 
+        imageUri: images[0] || '', // Ensure legacy imageUri is the first one
+        // Properties for grid display
+        displayImageUri: images[0],
+        hasMultipleImages: images.length > 1,
+      };
+    });
 
   const renderFollowButton = () => {
     if (isFollowing) {
@@ -267,12 +281,20 @@ export default function ProfileModal({ navigation, route }) {
         <Text style={styles.popdownText}>{popdownMessage}</Text>
       </Animated.View>
       <View style={styles.header}>
-        <Pressable onPress={() => navigation.goBack()} style={styles.backButton}>
+        <Pressable onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          navigation.goBack();
+        }} style={styles.backButton}>
           <MaterialIcons name="chevron-left" size={28} color="#53544D" />
         </Pressable>
-        <Text style={styles.headerTitle}>
-          {user?.username ? `@${user.username}` : 'Profile'}
-        </Text>
+        <View style={styles.headerCenter}>
+          <Text style={styles.headerTitle}>
+            {user?.username ? `@${user.username}` : 'Profile'}
+          </Text>
+          {user?.verified && (
+            <MaterialIcons name="verified" size={20} color="#8BA637" style={{ marginLeft: 4 }} />
+          )}
+        </View>
       </View>
       <View style={{ flex: 1 }}>
         <ScrollView
@@ -285,33 +307,47 @@ export default function ProfileModal({ navigation, route }) {
               style={styles.profileImage} 
             />
             <View style={styles.profileInfoContainer}>
-              <View>
-                <View style={styles.nameRow}>
-                  <Text style={styles.name}>{user?.displayName || 'User'}</Text>
-                  {user?.verified && (
-                    <MaterialIcons name="verified" size={20} color="#8BA637" style={{ marginLeft: 4 }} />
-                  )}
-                </View>
-                <Text style={styles.handle}>{user.username ? `@${user.username}` : `@${(user.displayName || '').toLowerCase().replace(/\s/g, '')}`}</Text>
+              <View style={{ flex: 1 }}>
+                {showStats ? (
+                  <View style={styles.statsContainer}>
+                    <View style={styles.statItem}>
+                      <Text style={styles.statNumber}>{formatCount(followingCount)}</Text>
+                      <Text style={styles.statLabel}>Following</Text>
+                    </View>
+                    <View style={styles.statItem}>
+                      <Text style={styles.statNumber}>{formatCount(followerCount)}</Text>
+                      <Text style={styles.statLabel}>Followers</Text>
+                    </View>
+                  </View>
+                ) : (
+                  <View style={styles.nameRow}>
+                    <Text style={styles.name}>{user?.displayName || 'User'}</Text>
+                  </View>
+                )}
               </View>
-              <View style={styles.statsContainer}>
-                <View style={styles.statItem}>
-                  <Text style={styles.statNumber}>{formatCount(followingCount)}</Text>
-                  <Text style={styles.statLabel}>Following</Text>
-                </View>
-                <View style={styles.statItem}>
-                  <Text style={styles.statNumber}>{formatCount(followerCount)}</Text>
-                  <Text style={styles.statLabel}>Followers</Text>
-                </View>
-              </View>
+              <Pressable
+                onPress={() => {
+                  LayoutAnimation.easeInEaseOut();
+                  setShowStats(!showStats);
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                }}
+                style={styles.toggleButton}
+              >
+                <MaterialIcons name={showStats ? "keyboard-arrow-up" : "keyboard-arrow-down"} size={32} color="#53544D" />
+              </Pressable>
             </View>
           </View>
 
-          <Text style={styles.bio}>{user.bio}</Text>
+          {user.bio && (
+            <Text style={styles.bio}>{user.bio}</Text>
+          )}
 
           <View style={styles.buttonWrapper}>
             {isCurrentUser ? (
-              <Pressable style={styles.editProfileButton} onPress={() => navigation.navigate('EditProfile')}>
+              <Pressable style={styles.editProfileButton} onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                navigation.navigate('EditProfile');
+              }}>
                 <Text style={styles.editProfileText}>Edit profile</Text>
               </Pressable>
             ) : (
@@ -325,15 +361,21 @@ export default function ProfileModal({ navigation, route }) {
                 <Pressable
                   key={item.id}
                   style={styles.postCard}
-                  onPress={() => navigation.navigate('UserPostsFeed', { userId: userId, initialPost: item })}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    navigation.navigate('UserPostsFeed', { userId: userId, initialPost: item });
+                  }}
                 >
                   <Image
-                    source={{ uri: item.imageUri }}
+                    source={{ uri: item.displayImageUri }}
                     style={[
                       styles.gridImg,
                       ((index + 1) % 3 === 0) && { marginRight: 0 }
                     ]}
                   />
+                  {item.hasMultipleImages && (
+                    <MaterialIcons name="collections" size={16} color="white" style={styles.multiImageIcon} />
+                  )}
                 </Pressable>
               ))}
             </View>
@@ -368,12 +410,16 @@ const styles = StyleSheet.create({
     zIndex: 2,
     padding: 4,
   },
+  headerCenter: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   headerTitle: {
     fontSize: 22,
     color: '#53544D',
     fontFamily: 'PatrickHand-Regular',
-    flex: 1,
-    textAlign: 'center',
   },
   headerRightPlaceholder: {
     width: 36,
@@ -411,9 +457,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   name: {
-    fontSize: 20,
+    fontSize: 24,
     fontFamily: 'PatrickHand-Regular',
     color: '#53544D',
+    marginLeft: 5,
   },
   handle: {
     fontSize: 16,
@@ -422,6 +469,8 @@ const styles = StyleSheet.create({
   },
   statsContainer: {
     flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
   statItem: {
     alignItems: 'center',
@@ -438,8 +487,12 @@ const styles = StyleSheet.create({
     fontFamily: 'PatrickHand-Regular',
     marginTop: -4,
   },
+  toggleButton: {
+    paddingLeft: 10,
+  },
   bio: {
-    marginTop: 16,
+    marginTop: 15,
+    marginBottom: 20,
     marginLeft: 35,
     marginRight: 35,
     color: '#53544D',
@@ -461,7 +514,9 @@ const styles = StyleSheet.create({
     marginRight: gridMargin,
     backgroundColor: '#FFFFFF',
   },
-  postCard: {},
+  postCard: {
+    position: 'relative', // Needed to position the icon
+  },
   editProfileButton: {
     backgroundColor: '#e6e6e6',
     borderRadius: 5,
@@ -562,5 +617,13 @@ const styles = StyleSheet.create({
     color: 'white',
     fontFamily: 'PatrickHand-Regular',
     fontSize: 18,
+  },
+  multiImageIcon: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    textShadowColor: 'rgba(0, 0, 0, 0.6)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
 });

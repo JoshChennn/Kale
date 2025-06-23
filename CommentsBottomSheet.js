@@ -249,19 +249,26 @@ const CommentsBottomSheet = ({ isVisible, onClose, post, navigation, closeCommen
       const createNotification = async (recipientId, type) => {
         if (recipientId === commenterId) return;
         const notificationsColRef = collection(db, 'users', recipientId, 'notifications');
-        await addDoc(notificationsColRef, {
+        const notificationData = {
           type,
           actorId: commenterId,
           actorName: currentUserData.username || currentUserData.displayName,
           actorAvatar: currentUserData.photoURL,
           postId: post.id,
           postOwnerId: postOwnerId,
-          postImageUri: post.imageUri,
           commentId: newCommentId,
           commentText: commentText.substring(0, 100),
           createdAt: Timestamp.now(),
           read: false
-        });
+        };
+        if (
+          Array.isArray(post.imageUris) &&
+          typeof post.imageUris[0] === 'string' &&
+          post.imageUris[0].length > 0
+        ) {
+          notificationData.postImageUri = post.imageUris[0];
+        }
+        await addDoc(notificationsColRef, notificationData);
       };
       await createNotification(postOwnerId, replyInfo ? 'reply_on_post' : 'comment_on_post');
       if (replyInfo && replyInfo.userId !== postOwnerId) {

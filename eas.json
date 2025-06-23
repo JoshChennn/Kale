@@ -1,4 +1,12 @@
 {
-    "preview": { "distribution": "internal", "channel": "preview" },
-    "release": { "distribution": "app-store", "channel": "prod" }
+  "build": {
+    "preview": {
+      "distribution": "internal",
+      "channel": "preview"
+    },
+    "production": {
+      "distribution": "store",
+      "channel": "prod"
+    }
+  }
 }
