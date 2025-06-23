@@ -16,7 +16,10 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.usekale.kale",
       "buildNumber": "1.0.0",
-      "runtimeVersion": "1.0.0"
+      "runtimeVersion": "1.0.0",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
