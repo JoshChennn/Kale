@@ -29,7 +29,8 @@
       "edgeToEdgeEnabled": true,
       "runtimeVersion": {
         "policy": "appVersion"
-      }
+      },
+      "package": "com.usekale.kale"
     },
     "web": {
       "favicon": "./assets/favicon.png"
