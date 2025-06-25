@@ -45,7 +45,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import CommentsBottomSheet from './CommentsBottomSheet';
 
 const { width: screenWidth } = Dimensions.get('window');
-const storySize = 70;
+const storySize = 85;
 
 // Helper function to format time ago
 const getTimeAgo = (timestamp) => {
@@ -289,48 +289,52 @@ export default function FeedScreen({ navigation }) {
       // --- STORIES LOGIC: Fetch stories from filtered users AND the current user
       const storyUserIds = [...new Set([currentUser.uid, ...filteredFollowingIds])];
       const fetchStories = async () => {
-        if (storyUserIds.length === 0) {
-            setStories([]);
-            return;
+        const limitedStoryUserIds = storyUserIds.slice(0, 30);
+        const storyUsersQuery = query(collection(db, 'users'), where('__name__', 'in', limitedStoryUserIds));
+        const storyUsersSnapshot = await getDocs(storyUsersQuery);
+        const userMap = new Map(storyUsersSnapshot.docs.map(d => [d.id, d.data()]));
+
+        const storyPromises = limitedStoryUserIds.map(uid => getDocs(query(collection(db, 'users', uid, 'stories'), limit(5))));
+        const storySnapshots = await Promise.all(storyPromises);
+
+        let storyEntries = storySnapshots.map((snapshot, index) => {
+          const userId = limitedStoryUserIds[index];
+          const user = userMap.get(userId);
+          if (user) {
+            return {
+              id: userId,
+              name: user.displayName,
+              avatar: user.photoURL,
+              uriList: snapshot.empty ? [] : snapshot.docs.map(d => ({ id: d.id, ...d.data() })),
+            };
+          }
+          return null;
+        }).filter(Boolean);
+
+        // Ensure current user is always first, even if they have no stories
+        const hasCurrentUser = storyEntries.some(entry => entry.id === currentUser.uid);
+        if (!hasCurrentUser) {
+          storyEntries = [
+            {
+              id: currentUser.uid,
+              name: currentUser.displayName || 'You',
+              avatar: currentUser.photoURL || defaultProfilePhoto,
+              uriList: [],
+            },
+            ...storyEntries,
+          ];
+        } else {
+          // Move current user to the front if not already
+          storyEntries = [
+            ...storyEntries.filter(entry => entry.id === currentUser.uid),
+            ...storyEntries.filter(entry => entry.id !== currentUser.uid),
+          ];
         }
-
-        try {
-            const limitedStoryUserIds = storyUserIds.slice(0, 30);
-            const storyUsersQuery = query(collection(db, 'users'), where('__name__', 'in', limitedStoryUserIds));
-            const storyUsersSnapshot = await getDocs(storyUsersQuery);
-            const userMap = new Map(storyUsersSnapshot.docs.map(d => [d.id, d.data()]));
-
-            const storyPromises = limitedStoryUserIds.map(uid => getDocs(query(collection(db, 'users', uid, 'stories'), limit(5))));
-            const storySnapshots = await Promise.all(storyPromises);
-
-            const storyEntries = storySnapshots.map((snapshot, index) => {
-              if (!snapshot.empty) {
-                const userId = limitedStoryUserIds[index];
-                const user = userMap.get(userId);
-                if (user) {
-                  return {
-                    id: userId,
-                    name: user.displayName, 
-                    avatar: user.photoURL, 
-                    uriList: snapshot.docs.map(d => ({id: d.id, ...d.data()}))
-                  };
-                }
-              }
-              return null;
-            }).filter(Boolean);
-            setStories(storyEntries);
-            
-            // Stop refreshing if we're currently refreshing and posts are also loaded
-            if (refreshing && !loading) {
-              setRefreshing(false);
-            }
-        } catch (error) {
-            console.error("Error fetching stories: ", error);
-            
-            // Stop refreshing even if there's an error
-            if (refreshing) {
-              setRefreshing(false);
-            }
+        setStories(storyEntries);
+        
+        // Stop refreshing if we're currently refreshing and posts are also loaded
+        if (refreshing && !loading) {
+          setRefreshing(false);
         }
       }
       fetchStories();
@@ -1317,12 +1321,26 @@ export default function FeedScreen({ navigation }) {
   };
 
   const renderStories = ({ item }) => (
-    <View style={[styles.storiesContainer, { backgroundColor: '#FFFFFF' }]}>
+    <View style={[styles.storiesContainer, { backgroundColor: '#FFFFFF' }]}> 
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
         {item.storyData.map(storyBlock => (
-          <Pressable key={storyBlock.id} style={styles.storyItem} onPress={() => navigation.navigate('StoryViewer', { stories: storyBlock.uriList, initialIndex: 0 })}>
-            <Image source={{ uri: storyBlock.avatar }} style={styles.storyImage} />
-            <Text style={styles.storyName} numberOfLines={1}>{storyBlock.name}</Text>
+          <Pressable
+            key={storyBlock.id}
+            style={styles.storyItem}
+            onPress={() => {
+              if (storyBlock.id === currentUser.uid && (!storyBlock.uriList || storyBlock.uriList.length === 0)) {
+                // TODO: Open create story modal/screen here in the future
+                // For now, do nothing or show an alert
+                // Alert.alert('Create Story', 'This will let you create a story!');
+                return;
+              }
+              navigation.navigate('StoryViewer', { stories: storyBlock.uriList, initialIndex: 0 });
+            }}
+          >
+            <View style={styles.storyOuterCircle}>
+              <Image source={storyBlock.avatar ? { uri: storyBlock.avatar } : defaultProfilePhoto} style={styles.storyImage} />
+            </View>
+            <Text style={styles.storyName} numberOfLines={1}>{storyBlock.id === currentUser.uid ? 'Your Story' : storyBlock.name}</Text>
           </Pressable>
         ))}
       </ScrollView>
@@ -1330,54 +1348,24 @@ export default function FeedScreen({ navigation }) {
   );
 
   const renderItem = ({ item, section }) => {
+    if (section.type === 'posts' && item.isDummyHeader) {
+      return null; // This is just to force the sticky header to always show
+    }
+    if (section.type === 'posts' && item.isStoryBar) {
+      return renderStories({ item: { storyData: stories } });
+    }
     switch (section.type) {
       case 'notifications': return renderNotification({ item });
-      case 'stories': return renderStories({ item });
       case 'posts': return renderPost({ item });
       default: return null;
     }
   };
 
   const renderSectionHeader = ({ section: { title, type } }) => {
-    // --- MODIFICATION: Always render the Post section header for the filter toggle ---
-    if (type === 'stories') return null;
-    
     if (type === 'posts') {
-      const isFeedEmpty = posts.length === 0;
-
-      // If the feed is empty for any reason, center the filter toggle.
-      if (isFeedEmpty) {
-        return (
-          <View style={[styles.sectionHeaderContainer, { justifyContent: 'center' }]}> 
-            <View style={styles.filterContainer}>
-              <Pressable 
-                style={styles.filterButton}
-                onPress={() => {
-                  clearAnimation.setValue(0);
-                  setFilterChanging(true);
-                  setSelectedFilter(selectedFilter === 'Close Friends' ? 'Everyone' : 'Close Friends');
-                  // Reset filterChanging after a short delay
-                  setTimeout(() => setFilterChanging(false), 1000);
-                }}
-              >
-                <Text style={styles.filterText}>{selectedFilter}</Text>
-                <MaterialIcons 
-                  name="swap-horiz" 
-                  size={24} 
-                  color="#8BA637" 
-                />
-              </Pressable>
-            </View>
-          </View>
-        );
-      }
-
-      // Default header for when there are posts
       return (
         <View style={styles.sectionHeaderContainer}>
-          <Text style={styles.sectionHeader}>
-            {title}
-          </Text>
+          <Text style={styles.sectionHeader}>{title}</Text>
           <View style={styles.filterContainer}>
             <Pressable 
               style={styles.filterButton}
@@ -1385,7 +1373,6 @@ export default function FeedScreen({ navigation }) {
                 clearAnimation.setValue(0);
                 setFilterChanging(true);
                 setSelectedFilter(selectedFilter === 'Close Friends' ? 'Everyone' : 'Close Friends');
-                // Reset filterChanging after a short delay
                 setTimeout(() => setFilterChanging(false), 1000);
               }}
             >
@@ -1435,15 +1422,17 @@ export default function FeedScreen({ navigation }) {
     );
   };
   
+  const postsWithStories = [
+    { id: 'dummy-header', isDummyHeader: true },
+    { id: 'story-bar', isStoryBar: true, storyData: stories },
+    ...posts,
+  ];
+
   const sections = [];
   if (notifications.length > 0) {
     sections.push({ title: 'Notifications', data: notifications, type: 'notifications' });
   }
-  if (stories.length > 0) {
-    sections.push({ title: 'Stories', data: [{ id: 'story-bar', storyData: stories }], type: 'stories' });
-  }
-  // --- MODIFICATION: Always include the posts section to ensure the header with the filter is always visible ---
-  sections.push({ title: 'New Posts', data: posts, type: 'posts' });
+  sections.push({ title: 'New Posts', data: postsWithStories, type: 'posts' });
 
   const ListFooterComponent = () => {
     // --- MODIFICATION: If posts are empty for any reason, show the cleared message.
@@ -1540,7 +1529,7 @@ export default function FeedScreen({ navigation }) {
         renderItem={renderItem}
         renderSectionHeader={renderSectionHeader}
         ListHeaderComponent={
-          <View onLayout={handleHeaderLayout}>
+          <View>
             <Text style={styles.header}>KALE</Text>
           </View>
         }
@@ -1733,18 +1722,28 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     marginBottom: 10,
     backgroundColor: '#FFFFFF',
+    paddingLeft: 15,
   },
   storyItem: {
     width: storySize + 10,
     alignItems: 'center',
-    marginLeft: 15,
+    marginRight: 10,
   },
-  storyImage: {
+  storyOuterCircle: {
     width: storySize,
     height: storySize,
     borderRadius: storySize / 2,
-    borderWidth: 4,
+    borderWidth: 3,
     borderColor: '#8BA637',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff', // ensures gap is white
+  },
+  storyImage: {
+    width: storySize - 12,
+    height: storySize - 12,
+    borderRadius: (storySize - 12) / 2,
+    backgroundColor: '#fff',
   },
   storyName: {
     fontFamily: 'PatrickHand-Regular',

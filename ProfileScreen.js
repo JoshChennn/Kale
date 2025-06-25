@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, StyleSheet, Image, SafeAreaView, Text, ScrollView, Dimensions, Pressable, Alert, ActivityIndicator, LayoutAnimation, UIManager, Platform } from 'react-native';
+import { View, StyleSheet, Image, SafeAreaView, Text, ScrollView, Dimensions, Pressable, Alert, ActivityIndicator, LayoutAnimation, UIManager, Platform, ActionSheetIOS } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { db, auth } from './firebaseConfig';
@@ -8,6 +8,7 @@ import { httpsCallable } from 'firebase/functions';
 import { functions } from './firebaseConfig';
 import defaultProfilePhoto from './assets/default-profile-photo.png';
 import UserListModal from './UserListModal';
+import { Ionicons } from '@expo/vector-icons';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -176,6 +177,66 @@ export default function ProfileScreen({ navigation, route }) {
     return (count / 1000000).toFixed(1).replace(/\.0$/, '') + 'M'; // 1M+
   };
 
+  // --- 3-dots menu handlers ---
+  const handleShowMenu = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Log out', 'Delete account', 'Cancel'],
+          destructiveButtonIndex: 1,
+          cancelButtonIndex: 2,
+        },
+        async (buttonIndex) => {
+          if (buttonIndex === 0) {
+            handleLogout();
+          } else if (buttonIndex === 1) {
+            handleDeleteAccount();
+          }
+        }
+      );
+    } else {
+      Alert.alert(
+        'Account',
+        '',
+        [
+          { text: 'Log out', onPress: handleLogout },
+          { text: 'Delete account', style: 'destructive', onPress: handleDeleteAccount },
+          { text: 'Cancel', style: 'cancel' },
+        ]
+      );
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await auth.signOut();
+    } catch (e) {
+      Alert.alert('Error', 'Could not log out. Please try again.');
+    }
+  };
+
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      'Delete Account',
+      'Are you sure you want to delete your account? This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await auth.currentUser.delete();
+            } catch (e) {
+              Alert.alert('Error', 'Could not delete account. You may need to log in again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFFFFF' }}>
@@ -239,14 +300,21 @@ export default function ProfileScreen({ navigation, route }) {
         }} style={styles.backButton}>
           <MaterialIcons name="chevron-left" size={28} color="#53544D" />
         </Pressable>
-        <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>
-            {user?.username ? `@${user.username}` : 'Profile'}
-          </Text>
-          {user?.verified && (
-            <MaterialIcons name="verified" size={20} color="#8BA637" style={{ marginLeft: 4 }} />
-          )}
+        <View style={styles.headerCenterWrapper}>
+          <View style={styles.headerCenter}>
+            <Text style={styles.headerTitle}>
+              {user?.username ? `@${user.username}` : 'Profile'}
+            </Text>
+            {user?.verified && (
+              <MaterialIcons name="verified" size={20} color="#8BA637" style={{ marginLeft: 4 }} />
+            )}
+          </View>
         </View>
+        {isCurrentUser && (
+          <Pressable onPress={handleShowMenu} style={styles.headerMenuButton} hitSlop={10}>
+            <Ionicons name="ellipsis-horizontal" size={18} color="#53544D" />
+          </Pressable>
+        )}
       </View>
       <ScrollView
         contentContainerStyle={{ paddingBottom: 100 }}
@@ -330,7 +398,7 @@ export default function ProfileScreen({ navigation, route }) {
                   navigation.navigate('AddMoreFriends');
                 }}
               >
-                <Text style={styles.addFriendsProfileButtonText}>Find friends</Text>
+                <Text style={styles.addFriendsProfileButtonText}>Add friends</Text>
               </Pressable>
             </>
           ) : (
@@ -404,8 +472,13 @@ const styles = StyleSheet.create({
     zIndex: 2,
     padding: 4,
   },
-  headerCenter: {
+  headerCenterWrapper: {
     flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+  },
+  headerCenter: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -609,5 +682,13 @@ const styles = StyleSheet.create({
     fontFamily: 'PatrickHand-Regular',
     fontSize: 16,
     color: '#FFFFFF',
+  },
+  headerMenuButton: {
+    position: 'absolute',
+    right: 20,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    padding: 4,
   },
 });
