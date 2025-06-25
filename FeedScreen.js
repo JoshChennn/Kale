@@ -46,6 +46,7 @@ import CommentsBottomSheet from './CommentsBottomSheet';
 
 const { width: screenWidth } = Dimensions.get('window');
 const storySize = 85;
+const STORY_VIEWED_KEY = 'viewedStories_v1';
 
 // Helper function to format time ago
 const getTimeAgo = (timestamp) => {
@@ -118,6 +119,9 @@ export default function FeedScreen({ navigation }) {
 
   // Track if user is near the footer
   const [nearFooter, setNearFooter] = useState(false);
+
+  // Add state for viewed stories
+  const [viewedStories, setViewedStories] = useState({});
 
   // Initialize heart animations for posts
   useEffect(() => {
@@ -304,6 +308,7 @@ export default function FeedScreen({ navigation }) {
             return {
               id: userId,
               name: user.displayName,
+              username: user.username,
               avatar: user.photoURL,
               uriList: snapshot.empty ? [] : snapshot.docs.map(d => ({ id: d.id, ...d.data() })),
             };
@@ -318,6 +323,7 @@ export default function FeedScreen({ navigation }) {
             {
               id: currentUser.uid,
               name: currentUser.displayName || 'You',
+              username: currentUser.username,
               avatar: currentUser.photoURL || defaultProfilePhoto,
               uriList: [],
             },
@@ -856,6 +862,27 @@ export default function FeedScreen({ navigation }) {
     setHeaderY(y);
   };
 
+  // Load viewed stories from AsyncStorage on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const stored = await AsyncStorage.getItem(STORY_VIEWED_KEY);
+        if (stored) setViewedStories(JSON.parse(stored));
+      } catch (e) {
+        // ignore
+      }
+    })();
+  }, []);
+
+  // Helper to mark a story as viewed
+  const markStoryViewed = async (userId) => {
+    setViewedStories(prev => {
+      const updated = { ...prev, [userId]: true };
+      AsyncStorage.setItem(STORY_VIEWED_KEY, JSON.stringify(updated));
+      return updated;
+    });
+  };
+
   if (loading && !refreshing && !filterChanging) {
     return (
       <SafeAreaView style={styles.container}>
@@ -1320,32 +1347,55 @@ export default function FeedScreen({ navigation }) {
     );
   };
 
-  const renderStories = ({ item }) => (
-    <View style={[styles.storiesContainer, { backgroundColor: '#FFFFFF' }]}> 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-        {item.storyData.map(storyBlock => (
-          <Pressable
-            key={storyBlock.id}
-            style={styles.storyItem}
-            onPress={() => {
-              if (storyBlock.id === currentUser.uid && (!storyBlock.uriList || storyBlock.uriList.length === 0)) {
-                // TODO: Open create story modal/screen here in the future
-                // For now, do nothing or show an alert
-                // Alert.alert('Create Story', 'This will let you create a story!');
-                return;
-              }
-              navigation.navigate('StoryViewer', { stories: storyBlock.uriList, initialIndex: 0 });
-            }}
-          >
-            <View style={styles.storyOuterCircle}>
-              <Image source={storyBlock.avatar ? { uri: storyBlock.avatar } : defaultProfilePhoto} style={styles.storyImage} />
-            </View>
-            <Text style={styles.storyName} numberOfLines={1}>{storyBlock.id === currentUser.uid ? 'Your Story' : storyBlock.name}</Text>
-          </Pressable>
-        ))}
-      </ScrollView>
-    </View>
-  );
+  const renderStories = ({ item }) => {
+    // Only show users with stories, except always show current user
+    const filteredStories = item.storyData.filter(storyBlock =>
+      storyBlock.id === currentUser.uid || (storyBlock.uriList && storyBlock.uriList.length > 0)
+    );
+    return (
+      <View style={[styles.storiesContainer, { backgroundColor: '#FFFFFF' }]}> 
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          {filteredStories.map(storyBlock => {
+            const isViewed = !!viewedStories[storyBlock.id];
+            const hasStories = storyBlock.uriList && storyBlock.uriList.length > 0;
+            const textColor = hasStories ? (isViewed ? '#b9b9b9' : '#8BA637') : '#b9b9b9';
+            const borderColor = hasStories ? (isViewed ? '#b9b9b9' : '#8BA637') : '#b9b9b9';
+            return (
+              <Pressable
+                key={storyBlock.id}
+                style={styles.storyItem}
+                onPress={() => {
+                  if (storyBlock.id === currentUser.uid && (!storyBlock.uriList || storyBlock.uriList.length === 0)) {
+                    // TODO: Open create story modal/screen here in the future
+                    return;
+                  }
+                  if (hasStories) markStoryViewed(storyBlock.id);
+                  navigation.navigate('StoryViewer', { stories: storyBlock.uriList, initialIndex: 0 });
+                }}
+              >
+                <View style={[styles.storyOuterCircle, { borderColor }]}> 
+                  <Image source={storyBlock.avatar ? { uri: storyBlock.avatar } : defaultProfilePhoto} style={styles.storyImage} />
+                </View>
+                <Text
+                  style={[
+                    storyBlock.id === currentUser.uid ? styles.storyName : styles.storyUsername,
+                    { color: textColor },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {storyBlock.id === currentUser.uid
+                    ? 'Your Story'
+                    : storyBlock.username
+                      ? `${storyBlock.username}`
+                      : storyBlock.name}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
+    );
+  };
 
   const renderItem = ({ item, section }) => {
     if (section.type === 'posts' && item.isDummyHeader) {
@@ -1749,7 +1799,14 @@ const styles = StyleSheet.create({
     fontFamily: 'PatrickHand-Regular',
     marginTop: 6,
     fontSize: 16,
-    color: '#8BA637',
+    color: '#b9b9b9',
+    textAlign: 'center',
+  },
+  storyUsername: {
+    fontFamily: 'PatrickHand-Regular',
+    marginTop: 6,
+    fontSize: 16,
+    color: '#b9b9b9',
     textAlign: 'center',
   },
   postCard: {
