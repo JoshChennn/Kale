@@ -44,6 +44,7 @@ import CreateProfileFirstNameScreen from './CreateProfileFirstNameScreen';
 import CreateProfileLastNameScreen from './CreateProfileLastNameScreen';
 import CreateProfileUsernameScreen from './CreateProfileUsernameScreen';
 import CreateProfilePhotoScreen from './CreateProfilePhotoScreen';
+import CreateStoryScreen from './CreateStoryScreen';
 
 const Tab = createBottomTabNavigator();
 const FeedStack = createStackNavigator();
@@ -457,6 +458,11 @@ export default function App() {
           <RootStack.Screen
             name="StoryViewer"
             component={StoryViewer}
+            options={{ presentation: 'modal', headerShown: false }}
+          />
+          <RootStack.Screen
+            name="CreateStory"
+            component={CreateStoryScreen}
             options={{ presentation: 'modal', headerShown: false }}
           />
           <RootStack.Screen

@@ -1360,36 +1360,53 @@ export default function FeedScreen({ navigation }) {
             const hasStories = storyBlock.uriList && storyBlock.uriList.length > 0;
             const textColor = hasStories ? (isViewed ? '#b9b9b9' : '#8BA637') : '#b9b9b9';
             const borderColor = hasStories ? (isViewed ? '#b9b9b9' : '#8BA637') : '#b9b9b9';
+            const isOwnStory = storyBlock.id === currentUser.uid;
             return (
-              <Pressable
-                key={storyBlock.id}
-                style={styles.storyItem}
-                onPress={() => {
-                  if (storyBlock.id === currentUser.uid && (!storyBlock.uriList || storyBlock.uriList.length === 0)) {
-                    // TODO: Open create story modal/screen here in the future
-                    return;
-                  }
-                  if (hasStories) markStoryViewed(storyBlock.id);
-                  navigation.navigate('StoryViewer', { stories: storyBlock.uriList, initialIndex: 0 });
-                }}
-              >
-                <View style={[styles.storyOuterCircle, { borderColor }]}> 
-                  <Image source={storyBlock.avatar ? { uri: storyBlock.avatar } : defaultProfilePhoto} style={styles.storyImage} />
-                </View>
-                <Text
-                  style={[
-                    storyBlock.id === currentUser.uid ? styles.storyName : styles.storyUsername,
-                    { color: textColor },
-                  ]}
-                  numberOfLines={1}
+              <View key={storyBlock.id} style={styles.storyItem}>
+                <Pressable
+                  style={{}}
+                  onPress={() => {
+                    if (isOwnStory && (!storyBlock.uriList || storyBlock.uriList.length === 0)) {
+                      // Open create story screen
+                      navigation.navigate('CreateStory');
+                      return;
+                    }
+                    if (hasStories) markStoryViewed(storyBlock.id);
+                    navigation.navigate('StoryViewer', { stories: storyBlock.uriList, initialIndex: 0 });
+                  }}
                 >
-                  {storyBlock.id === currentUser.uid
-                    ? 'Your Story'
-                    : storyBlock.username
-                      ? `${storyBlock.username}`
-                      : storyBlock.name}
-                </Text>
-              </Pressable>
+                  <View style={[styles.storyOuterCircle, { borderColor }]}> 
+                    <Image source={storyBlock.avatar ? { uri: storyBlock.avatar } : defaultProfilePhoto} style={styles.storyImage} />
+                    {/* Add green plus button for own story */}
+                    {isOwnStory && (
+                      <Pressable
+                        style={styles.addStoryButton}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          navigation.navigate('CreateStory');
+                        }}
+                      >
+                        <View style={styles.addStoryCircle}>
+                          <MaterialIcons name="add" size={18} color="#fff" />
+                        </View>
+                      </Pressable>
+                    )}
+                  </View>
+                  <Text
+                    style={[
+                      isOwnStory ? styles.storyName : styles.storyUsername,
+                      { color: textColor },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {isOwnStory
+                      ? 'Your Story'
+                      : storyBlock.username
+                        ? `${storyBlock.username}`
+                        : storyBlock.name}
+                  </Text>
+                </Pressable>
+              </View>
             );
           })}
         </ScrollView>
@@ -2051,5 +2068,26 @@ const styles = StyleSheet.create({
   },
   paginationDotActive: {
     backgroundColor: 'rgba(255, 255, 255, 0.9)',
+  },
+  addStoryButton: {
+    position: 'absolute',
+    bottom: 4,
+    right: 4,
+    zIndex: 2,
+  },
+  addStoryCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#8BA637',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 2,
+    elevation: 2,
   },
 });
