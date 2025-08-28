@@ -11,6 +11,7 @@ import {
   Image,
   Modal,
   ScrollView,
+  Share,
 } from 'react-native';
 import { StackScreenProps } from '@react-navigation/stack';
 import * as Contacts from 'expo-contacts';
@@ -61,11 +62,11 @@ interface NonKaleContact {
   phoneNumber: string;
 }
 
-const MINIMUM_FOLLOW_INVITE = 0;
+const MINIMUM_FOLLOW_INVITE = 4;
 
 // Single personalized invite message
-const getInviteMessage = (firstName: string) => 
-  `${firstName} requested to follow you on Kale. Accept it: [Your App Link Here]`;
+const getInviteMessage = (firstName: string, link: string) => 
+  `${firstName} requested to follow you on Kale. Accept it: ${link}`;
 
 // Add at the top, after type definitions:
 type FollowRequest = {
@@ -374,7 +375,13 @@ export default function AddFriendsScreen({ onOnboardingComplete }: Props) {
   const handleInvite = async (contactToInvite: NonKaleContact) => {
     if (invitedContactIds.has(contactToInvite.id) || !currentUser || waitingContacts.has(contactToInvite.id)) return;
     setWaitingContacts(prev => new Set(prev).add(contactToInvite.id));
-    const inviteMessage = getInviteMessage(userFirstName);
+
+    // 1. Generate the unique referral link
+    const referralLink = `https://usekale.com/refer?referrerId=${currentUser.uid}`;
+    
+    // 2. Create the invite message with the link
+    const inviteMessage = getInviteMessage(userFirstName, referralLink);
+
     const isAvailable = await SMS.isAvailableAsync();
     if (isAvailable) {
       try {

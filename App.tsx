@@ -14,6 +14,9 @@ import { User as FirebaseUser } from 'firebase/auth';
 import { onSnapshot, doc } from 'firebase/firestore';
 import * as Haptics from 'expo-haptics';
 
+import * as Linking from 'expo-linking';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 // Import SVG icons
 import FeedActiveIcon from './assets/tab-icons/feed-active.svg';
 import FeedInactiveIcon from './assets/tab-icons/feed-inactive.svg';
@@ -45,6 +48,19 @@ import CreateProfileLastNameScreen from './CreateProfileLastNameScreen';
 import CreateProfileUsernameScreen from './CreateProfileUsernameScreen';
 import CreateProfilePhotoScreen from './CreateProfilePhotoScreen';
 import CreateStoryScreen from './CreateStoryScreen';
+
+const DEEP_LINK_SCHEME = 'kale';
+const WEBSITE_URL = 'https://usekale.com';
+
+const linkingConfig = {
+  prefixes: [Linking.createURL('/'), `${DEEP_LINK_SCHEME}://`, WEBSITE_URL],
+  config: {
+    screens: {
+      // You can configure paths to specific screens here if needed in the future.
+      // e.g., ProfileModal: 'user/:userId'
+    },
+  },
+};
 
 const Tab = createBottomTabNavigator();
 const FeedStack = createStackNavigator();
@@ -363,17 +379,77 @@ export default function App() {
   const [currentUser, setCurrentUser] = React.useState<FirebaseUser | null>(null);
   const [initialOnboardingRoute, setInitialOnboardingRoute] = React.useState<keyof OnboardingStackParamList>('OnboardingIntro');
 
+  React.useEffect(() => {
+    const handleUrl = (url: string | null) => {
+        if (!url) return;
+        const { queryParams } = Linking.parse(url);
+        if (queryParams?.referrerId && typeof queryParams.referrerId === 'string') {
+            console.log(`Referrer found: ${queryParams.referrerId}`);
+            // Store the referrer ID. We'll use this after the user signs up.
+            AsyncStorage.setItem('referrerId', queryParams.referrerId);
+        }
+    };
+
+    // 1. Handle the link that opened the app
+    Linking.getInitialURL().then(url => {
+        handleUrl(url);
+    });
+
+    // 2. Handle links while the app is open
+    const subscription = Linking.addEventListener('url', (event) => {
+        handleUrl(event.url);
+    });
+
+    return () => {
+        subscription.remove();
+    };
+  }, []);
+
   const handleOnboardingComplete = async () => {
     if (currentUser) {
       try {
-        await db.collection('users').doc(currentUser.uid).set(
-          { onboardingCompleted: true },
-          { merge: true }
-        );
-        // The onSnapshot listener will automatically detect this change
-        // and set the authStatus to 'LOGGED_IN', making this the single source of truth.
+        const userDocRef = db.collection('users').doc(currentUser.uid);
+        const userDoc = await userDocRef.get();
+        const userData = userDoc.data();
+
+        // Check if the user was referred
+        if (userData && userData.referredBy && userData.referredBy !== 'processed') {
+          const referrerId = userData.referredBy;
+          console.log(`Onboarding complete. Following back referrer: ${referrerId}`);
+
+          const batch = db.batch();
+
+          // 1. New user follows the referrer
+          const followingRef = db
+            .collection('following')
+            .doc(currentUser.uid)
+            .collection('userFollowing')
+            .doc(referrerId);
+          batch.set(followingRef, {});
+
+          // 2. Referrer gets a new follower
+          const followerRef = db
+            .collection('followers')
+            .doc(referrerId)
+            .collection('userFollowers')
+            .doc(currentUser.uid);
+          batch.set(followerRef, {});
+
+          // 3. Mark onboarding as complete and referral as processed
+          batch.update(userDocRef, { onboardingCompleted: true, referredBy: 'processed' });
+
+          await batch.commit();
+
+        } else {
+          // Original logic for users without a referrer
+          await userDocRef.set(
+            { onboardingCompleted: true },
+            { merge: true }
+          );
+        }
+        // The onSnapshot listener will automatically set authStatus to 'LOGGED_IN'
       } catch (error) {
-        console.error("Error marking onboarding as complete: ", error);
+        console.error("Error during onboarding completion: ", error);
         Alert.alert("Error", "Could not save your progress. Please try again.");
       }
     }
@@ -412,7 +488,29 @@ export default function App() {
               }
             }
           } else {
-            // User is authenticated but has no Firestore document yet.
+            const createNewUserDocument = async () => {
+              try {
+                const referrerId = await AsyncStorage.getItem('referrerId');
+                const initialUserData: { [key: string]: any } = {
+                  createdAt: new Date(),
+                  onboardingCompleted: false,
+                  phoneNumber: user.phoneNumber,
+                };
+
+                if (referrerId) {
+                  console.log(`Attaching referrerId ${referrerId} to new user ${user.uid}`);
+                  initialUserData.referredBy = referrerId;
+                  await AsyncStorage.removeItem('referrerId');
+                }
+                
+                await db.collection('users').doc(user.uid).set(initialUserData, { merge: true });
+                
+              } catch (error) {
+                console.error("Error creating new user document:", error);
+              }
+            };
+
+            createNewUserDocument();
             setAuthStatus('ONBOARDING');
             setInitialOnboardingRoute('OnboardingIntro');
           }
@@ -442,7 +540,7 @@ export default function App() {
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer linking={linkingConfig}>
       {authStatus === 'LOGGED_OUT' && <AuthStackScreen />}
       {authStatus === 'ONBOARDING' && <OnboardingStackScreen initialRouteName={initialOnboardingRoute} onOnboardingComplete={handleOnboardingComplete} />}
       {authStatus === 'LOGGED_IN' && currentUser && (

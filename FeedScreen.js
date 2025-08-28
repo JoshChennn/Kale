@@ -1492,14 +1492,13 @@ export default function FeedScreen({ navigation }) {
   const postsWithStories = [
     { id: 'dummy-header', isDummyHeader: true },
     { id: 'story-bar', isStoryBar: true, storyData: stories },
-    ...posts,
   ];
 
   const sections = [];
   if (notifications.length > 0) {
     sections.push({ title: 'Notifications', data: notifications, type: 'notifications' });
   }
-  sections.push({ title: 'New Posts', data: postsWithStories, type: 'posts' });
+  sections.push({ title: 'Stories', data: postsWithStories, type: 'posts' });
 
   const ListFooterComponent = () => {
     // --- MODIFICATION: If posts are empty for any reason, show the cleared message.

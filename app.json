@@ -2,6 +2,7 @@
   "expo": {
     "name": "Kale",
     "slug": "Kale",
+    "scheme": "kale",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -19,7 +20,10 @@
       "runtimeVersion": "1.0.0",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
-      }
+      },
+      "associatedDomains": [
+        "applinks:usekale.com"
+      ]
     },
     "android": {
       "adaptiveIcon": {
@@ -30,18 +34,46 @@
       "runtimeVersion": {
         "policy": "appVersion"
       },
-      "package": "com.usekale.kale"
+      "package": "com.usekale.kale",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "usekale.com",
+              "pathPrefix": "/refer"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
       "expo-font",
-      "expo-video"
+      "expo-video",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static"
+          }
+        }
+      ]
     ],
     "extra": {
       "eas": {
-        "projectId": "336d0557-1466-49e7-ae4a-2eb6b5ee3da3"
+        "projectId": "336d0557-1466-49e7-ae4a-2eb6b5ee3da3",
+        "cli": {
+          "appVersionSource": "remote"
+        }
       }
     },
     "owner": "joshkale",
